@@ -52,18 +52,23 @@ The curated defaults in `conf/openrouter_models.json` include popular entries su
 
 | Alias | Canonical Model | Highlights |
 |-------|-----------------|------------|
-| `opus`, `claude-opus` | `anthropic/claude-opus-4.1` | Flagship Claude reasoning model with vision |
+| `opus`, `claude-opus` | `anthropic/claude-opus-4.5` | Default Claude Opus alias in the curated manifest |
+| `opus4.6` | `anthropic/claude-opus-4.6` | Latest Claude Opus entry for long-running coding and agent workflows |
 | `sonnet`, `sonnet4.5` | `anthropic/claude-sonnet-4.5` | Balanced Claude with high context window |
 | `haiku` | `anthropic/claude-3.5-haiku` | Fast Claude option with vision |
-| `pro`, `gemini` | `google/gemini-2.5-pro` | Frontier Gemini with extended thinking |
+| `pro`, `gemini` | `google/gemini-3-pro-preview` | Default Gemini alias in the curated manifest |
+| `gemini3.1` | `google/gemini-3.1-pro-preview` | Latest Gemini Pro preview via OpenRouter |
 | `flash` | `google/gemini-2.5-flash` | Ultra-fast Gemini with vision |
 | `mistral` | `mistralai/mistral-large-2411` | Frontier Mistral (text only) |
 | `llama3` | `meta-llama/llama-3-70b` | Large open-weight text model |
 | `deepseek-r1` | `deepseek/deepseek-r1-0528` | DeepSeek reasoning model |
 | `perplexity` | `perplexity/llama-3-sonar-large-32k-online` | Search-augmented model |
+| `gpt5.3-codex`, `gpt53codex` | `openai/gpt-5.3-codex` | Latest Codex-branded OpenAI model on OpenRouter |
 | `gpt5.2`, `gpt-5.2`, `5.2` | `openai/gpt-5.2` | Flagship GPT-5.2 with reasoning and vision |
 | `gpt5.1-codex`, `codex-5.1` | `openai/gpt-5.1-codex` | Agentic coding specialization (Responses API) |
 | `codex-mini`, `gpt5.1-codex-mini` | `openai/gpt-5.1-codex-mini` | Cost-efficient Codex variant with streaming |
+| `grok-4.20`, `grok420` | `x-ai/grok-4.20-beta` | Latest xAI flagship entry currently on OpenRouter |
+| `minimax`, `m2.7` | `minimax/minimax-m2.7` | Latest MiniMax agent-focused reasoning model |
 
 Consult the JSON file for the full list, aliases, and capability flags. Add new entries as OpenRouter releases additional models.
 

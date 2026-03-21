@@ -239,3 +239,19 @@ class TestOpenRouterModelRegistry:
         assert caps.supports_streaming
         assert caps.supports_function_calling
         # Note: supports_json_mode is not in ModelCapabilities yet
+
+    def test_latest_curated_models_are_present(self):
+        """Recent curated OpenRouter entries should be available without live fetch."""
+        registry = OpenRouterModelRegistry()
+
+        expected_models = [
+            "anthropic/claude-opus-4.6",
+            "google/gemini-3.1-pro-preview",
+            "openai/gpt-5.3-codex",
+            "x-ai/grok-4.20-beta",
+            "minimax/minimax-m2.7",
+        ]
+
+        for model_name in expected_models:
+            config = registry.resolve(model_name)
+            assert config is not None, f"Expected curated OpenRouter model '{model_name}' to be present"
