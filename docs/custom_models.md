@@ -4,6 +4,7 @@ This guide covers setting up multiple AI model providers including OpenRouter, c
 
 ## Supported Providers
 
+- **MiniMax** - Direct access to MiniMax's coding and reasoning models
 - **OpenRouter** - Unified access to multiple commercial models (GPT-4, Claude, Mistral, etc.)
 - **Custom API endpoints** - Local models (Ollama, vLLM, LM Studio, text-generation-webui)
 - **Self-hosted APIs** - Any OpenAI-compatible endpoint
@@ -21,7 +22,7 @@ This guide covers setting up multiple AI model providers including OpenRouter, c
 - **Private/enterprise APIs** that use OpenAI-compatible format
 - **Cost control** with local hardware
 
-**Use native APIs (Gemini/OpenAI) when you want:**
+**Use native APIs (Gemini/OpenAI/X.AI/MiniMax) when you want:**
 - Direct access to specific providers without intermediary
 - Potentially lower latency and costs
 - Access to the latest model features immediately upon release
@@ -40,6 +41,7 @@ PAL ships multiple registries:
 - `conf/openai_models.json` – native OpenAI catalogue (override with `OPENAI_MODELS_CONFIG_PATH`)
 - `conf/gemini_models.json` – native Google Gemini catalogue (`GEMINI_MODELS_CONFIG_PATH`)
 - `conf/xai_models.json` – native X.AI / GROK catalogue (`XAI_MODELS_CONFIG_PATH`)
+- `conf/minimax_models.json` – native MiniMax catalogue (`MINIMAX_MODELS_CONFIG_PATH`)
 - `conf/openrouter_models.json` – OpenRouter catalogue (`OPENROUTER_MODELS_CONFIG_PATH`)
 - `conf/dial_models.json` – DIAL aggregation catalogue (`DIAL_MODELS_CONFIG_PATH`)
 - `conf/custom_models.json` – local/self-hosted OpenAI-compatible catalogue (`CUSTOM_MODELS_CONFIG_PATH`)
@@ -80,11 +82,41 @@ Consult the JSON file for the full list, aliases, and capability flags. Add new 
 
 View the baseline OpenRouter catalogue in [`conf/openrouter_models.json`](conf/openrouter_models.json) and populate [`conf/custom_models.json`](conf/custom_models.json) with your local models.
 
-Native catalogues (`conf/openai_models.json`, `conf/gemini_models.json`, `conf/xai_models.json`, `conf/dial_models.json`) follow the same schema. Updating those files lets you:
+Native catalogues (`conf/openai_models.json`, `conf/gemini_models.json`, `conf/xai_models.json`, `conf/minimax_models.json`, `conf/dial_models.json`) follow the same schema. Updating those files lets you:
 
 - Expose new aliases (e.g., map `enterprise-pro` to `gpt-5.2-pro`)
 - Advertise support for JSON mode or vision if the upstream provider adds it
 - Adjust token limits when providers increase context windows
+
+### MiniMax Models (Direct API)
+
+PAL now ships a direct MiniMax manifest in `conf/minimax_models.json`. As of March 21, 2026, MiniMax's official direct text API docs list `MiniMax-M2.7`, `MiniMax-M2.7-highspeed`, `MiniMax-M2.5`, `MiniMax-M2.5-highspeed`, `MiniMax-M2.1`, and `MiniMax-M2`, so the native provider is wired directly to that family.
+
+Set:
+
+```bash
+MINIMAX_API_KEY=your-minimax-api-key
+```
+
+Optional endpoint override:
+
+```bash
+# Global/default
+MINIMAX_BASE_URL=https://api.minimax.io/v1
+
+# China-region endpoint
+MINIMAX_BASE_URL=https://api.minimaxi.com/v1
+```
+
+Common aliases from the shipped manifest:
+
+| Alias | Canonical Model | Highlights |
+|-------|-----------------|------------|
+| `minimax`, `m2.7` | `MiniMax-M2.7` | Latest direct MiniMax coding/reasoning model |
+| `minimax-fast`, `m2.7-fast` | `MiniMax-M2.7-highspeed` | Same family with lower latency |
+| `m2.5` | `MiniMax-M2.5` | Previous-generation direct coding/reasoning model |
+| `m2.1` | `MiniMax-M2.1` | Previous-generation coding/reasoning model |
+| `m2` | `MiniMax-M2` | Earlier agentic reasoning model |
 
 ### Latest OpenAI releases
 

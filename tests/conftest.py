@@ -46,6 +46,7 @@ if sys.platform == "win32":
 
 # Register providers for all tests
 from providers.gemini import GeminiModelProvider  # noqa: E402
+from providers.minimax import MiniMaxModelProvider  # noqa: E402
 from providers.openai import OpenAIModelProvider  # noqa: E402
 from providers.registry import ModelProviderRegistry  # noqa: E402
 from providers.shared import ProviderType  # noqa: E402
@@ -55,6 +56,7 @@ from providers.xai import XAIModelProvider  # noqa: E402
 ModelProviderRegistry.register_provider(ProviderType.GOOGLE, GeminiModelProvider)
 ModelProviderRegistry.register_provider(ProviderType.OPENAI, OpenAIModelProvider)
 ModelProviderRegistry.register_provider(ProviderType.XAI, XAIModelProvider)
+ModelProviderRegistry.register_provider(ProviderType.MINIMAX, MiniMaxModelProvider)
 
 # Register CUSTOM provider if CUSTOM_API_URL is available (for integration tests)
 # But only if we're actually running integration tests, not unit tests
@@ -131,6 +133,8 @@ def mock_provider_availability(request, monkeypatch):
         ModelProviderRegistry.register_provider(ProviderType.OPENAI, OpenAIModelProvider)
     if ProviderType.XAI not in registry._providers:
         ModelProviderRegistry.register_provider(ProviderType.XAI, XAIModelProvider)
+    if ProviderType.MINIMAX not in registry._providers:
+        ModelProviderRegistry.register_provider(ProviderType.MINIMAX, MiniMaxModelProvider)
 
     # Ensure CUSTOM provider is registered if needed for integration tests
     if (
@@ -183,11 +187,20 @@ def clear_model_restriction_env(monkeypatch):
         "OPENAI_ALLOWED_MODELS",
         "GOOGLE_ALLOWED_MODELS",
         "XAI_ALLOWED_MODELS",
+        "MINIMAX_ALLOWED_MODELS",
         "OPENROUTER_ALLOWED_MODELS",
         "DIAL_ALLOWED_MODELS",
     ]
 
     for var in restriction_vars:
+        monkeypatch.delenv(var, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def clear_minimax_env(monkeypatch):
+    """Prevent workstation MiniMax settings from leaking into unrelated tests."""
+
+    for var in ("MINIMAX_API_KEY", "MINIMAX_BASE_URL", "MINIMAX_MODELS_CONFIG_PATH"):
         monkeypatch.delenv(var, raising=False)
 
 

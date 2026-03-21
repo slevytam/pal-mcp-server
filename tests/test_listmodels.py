@@ -46,6 +46,7 @@ class TestListModelsTool:
             assert "Google Gemini ❌" in content
             assert "OpenAI ❌" in content
             assert "X.AI (Grok) ❌" in content
+            assert "MiniMax ❌" in content
             assert "OpenRouter ❌" in content
             assert "Custom/Local API ❌" in content
 
@@ -100,6 +101,24 @@ class TestListModelsTool:
 
             # Check summary
             assert "**Configured Providers**: 3" in content
+
+    @pytest.mark.asyncio
+    async def test_execute_with_minimax_configured(self, tool):
+        """Test listing models with MiniMax configured."""
+
+        env_vars = {"MINIMAX_API_KEY": "test-key", "DEFAULT_MODEL": "auto"}
+
+        with patch.dict(os.environ, env_vars, clear=True):
+            result = await tool.execute({})
+
+            response = json.loads(result[0].text)
+            content = response["content"]
+
+            assert "MiniMax ✅" in content
+            assert "`minimax` → `MiniMax-M2.7`" in content
+            assert "`minimax-fast` → `MiniMax-M2.7-highspeed`" in content
+            assert "204K context" in content
+            assert "**Configured Providers**: 1" in content
 
     @pytest.mark.asyncio
     async def test_execute_with_openrouter(self, tool):
