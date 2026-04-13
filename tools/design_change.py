@@ -4,6 +4,7 @@ Design change tool - structured UI patch generation for existing implementations
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any, Literal
 
@@ -570,35 +571,24 @@ class DesignChangeTool(SimpleTool):
         implementation_kind = infer_implementation_kind(request.target_files, request.framework_hint)
         grouped_files = group_target_files(request.target_files)
 
-        analyses: list[dict[str, Any]] = []
-        consulted_models: list[str] = []
+        if not request.models:
+            raise ValueError("'models' is required when mode='consensus'")
 
-        for index, model_config in enumerate(request.models or []):
-            model_name = model_config.get("model")
-            if not model_name:
-                raise ValueError("Each consensus model entry must include a model")
-
-            prompt_text = await self._build_consensus_analysis_prompt(
-                request=request,
-                implementation_kind=implementation_kind,
-                grouped_files=grouped_files,
-                model_config=model_config,
-                analysis_index=index,
-            )
-            raw_response, _ = await self._generate_model_response(
-                model_name=model_name,
-                prompt_text=prompt_text,
-                request=request,
-                arguments=arguments,
-            )
-            analyses.append(
-                {
-                    "model": model_name,
-                    "stance": model_config.get("stance", "neutral"),
-                    "analysis": raw_response.strip(),
-                }
-            )
-            consulted_models.append(model_name)
+        analysis_results = await asyncio.gather(
+            *[
+                self._run_consensus_analysis(
+                    request=request,
+                    arguments=arguments,
+                    implementation_kind=implementation_kind,
+                    grouped_files=grouped_files,
+                    model_config=model_config,
+                    analysis_index=index,
+                )
+                for index, model_config in enumerate(request.models)
+            ]
+        )
+        analyses = [result["analysis"] for result in analysis_results]
+        consulted_models = [result["model"] for result in analysis_results]
 
         formatter_model = request.model or consulted_models[0]
         formatter_prompt = await self._build_consensus_formatter_prompt(
@@ -630,6 +620,41 @@ class DesignChangeTool(SimpleTool):
         metadata["model_used"] = formatter_model
 
         return formatted_response, formatter_info, metadata
+
+    async def _run_consensus_analysis(
+        self,
+        request: DesignChangeRequest,
+        arguments: dict[str, Any],
+        implementation_kind: str,
+        grouped_files: dict[str, list[str]],
+        model_config: dict[str, Any],
+        analysis_index: int,
+    ) -> dict[str, Any]:
+        model_name = model_config.get("model")
+        if not model_name:
+            raise ValueError("Each consensus model entry must include a model")
+
+        prompt_text = await self._build_consensus_analysis_prompt(
+            request=request,
+            implementation_kind=implementation_kind,
+            grouped_files=grouped_files,
+            model_config=model_config,
+            analysis_index=analysis_index,
+        )
+        raw_response, _ = await self._generate_model_response(
+            model_name=model_name,
+            prompt_text=prompt_text,
+            request=request,
+            arguments=arguments,
+        )
+        return {
+            "model": model_name,
+            "analysis": {
+                "model": model_name,
+                "stance": model_config.get("stance", "neutral"),
+                "analysis": raw_response.strip(),
+            },
+        }
 
     async def _build_consensus_analysis_prompt(
         self,
@@ -791,7 +816,8 @@ class DesignChangeTool(SimpleTool):
         )
         supports_thinking = capabilities.supports_extended_thinking
 
-        model_response = provider.generate_content(
+        model_response = await asyncio.to_thread(
+            provider.generate_content,
             prompt=prompt_text,
             model_name=model_name,
             system_prompt=system_prompt,

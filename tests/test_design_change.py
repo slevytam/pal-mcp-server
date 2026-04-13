@@ -2,7 +2,9 @@
 Tests for the design_change tool MVP.
 """
 
+import asyncio
 import json
+import time
 from unittest.mock import Mock
 
 import pytest
@@ -487,3 +489,69 @@ class TestDesignChangeTool:
         assert payload["metadata"]["consensus_models"] == ["model-a", "model-b"]
         inner = json.loads(payload["content"])
         assert inner["patch_format"] == "fragment_patch"
+
+    @pytest.mark.asyncio
+    async def test_execute_consensus_runs_analysis_models_in_parallel(self, tmp_path):
+        tool = DesignChangeTool()
+        tsx_path = tmp_path / "App.tsx"
+        css_path = tmp_path / "app.css"
+        tsx_path.write_text("<section className=\"hero\">Hero</section>\n", encoding="utf-8")
+        css_path.write_text(".hero { display: grid; }\n", encoding="utf-8")
+        call_log: list[str] = []
+
+        async def fake_generate(*args, **kwargs):
+            prompt_text = kwargs["prompt_text"]
+            if "CONSENSUS ANALYSIS STEP" in prompt_text:
+                await asyncio.sleep(0.1)
+                call_log.append("analysis")
+                model_name = kwargs["model_name"]
+                return (f"Analysis from {model_name}", {"provider": "mock-provider", "model_name": model_name})
+
+            await asyncio.sleep(0.1)
+            call_log.append("formatter")
+            return (
+                json.dumps(
+                    {
+                        "status": "success",
+                        "implementation_kind": "react_ts",
+                        "patch_format": "fragment_patch",
+                        "summary": "Adds a compact metrics card.",
+                        "operations": [
+                            {
+                                "id": "op_insert_card",
+                                "file": str(tsx_path),
+                                "file_role": "structure",
+                                "kind": "insert",
+                                "target": {
+                                    "locator_type": "anchor_text",
+                                    "value": "<section className=\"hero\">",
+                                },
+                                "position": "after",
+                                "content": "<section className=\"metrics-card\">Card</section>",
+                            }
+                        ],
+                    }
+                ),
+                {"provider": "mock-provider", "model_name": kwargs["model_name"]},
+            )
+
+        tool._generate_model_response = fake_generate  # type: ignore[method-assign]
+        tool._ensure_prompt_model_context = lambda *args, **kwargs: None  # type: ignore[method-assign]
+        tool.prepare_chat_style_prompt = lambda request, system_prompt=None: request.change_request  # type: ignore[method-assign]
+        tool._create_continuation_offer = Mock(return_value=None)
+
+        started = time.perf_counter()
+        await tool.execute(
+            {
+                "change_request": "Add a compact metrics card below the hero",
+                "target_files": [str(tsx_path), str(css_path)],
+                "mode": "consensus",
+                "output_format": "fragment",
+                "models": [{"model": "model-a"}, {"model": "model-b"}],
+            }
+        )
+        elapsed = time.perf_counter() - started
+
+        assert call_log.count("analysis") == 2
+        assert call_log.count("formatter") == 1
+        assert elapsed < 0.28
