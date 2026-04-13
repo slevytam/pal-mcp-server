@@ -136,6 +136,38 @@ class TestDesignChangeTool:
         assert payload["patch_format"] == "fragment_patch"
         assert len(payload["operations"]) == 2
 
+    def test_format_response_normalizes_live_fragment_variant(self):
+        request = DesignChangeRequest(
+            change_request="Add a card",
+            target_files=["/tmp/home-view.tsx", "/tmp/home-shell.css"],
+            mode="single",
+            output_format="fragment",
+        )
+        response = {
+            "type": "fragment_patch",
+            "summary": "Adds a compact metrics panel.",
+            "target_files": [
+                {
+                    "file": "/tmp/home-view.tsx",
+                    "fragment": "return <><section className=\"hero\">Hero</section><section className=\"metrics-panel\">Metrics</section></>;",
+                    "anchor_text": "return <section className=\"hero\">Hero</section>;",
+                    "insert_mode": "replace",
+                },
+                {
+                    "file": "/tmp/home-shell.css",
+                    "fragment": ".metrics-panel { display: grid; }",
+                    "insert_mode": "append",
+                },
+            ],
+        }
+
+        formatted = self.tool.format_response(json.dumps(response), request)
+        payload = json.loads(formatted)
+        assert payload["patch_format"] == "fragment_patch"
+        assert len(payload["operations"]) == 2
+        assert payload["operations"][0]["kind"] == "replace"
+        assert payload["operations"][1]["kind"] == "append"
+
     def test_format_response_full_file_patch(self):
         request = DesignChangeRequest(
             change_request="Update full files",
@@ -278,6 +310,44 @@ class TestDesignChangeTool:
         assert "INLINE TARGET FILE CONTENTS" in prompt
         assert "--- BEGIN FILE: /tmp/home-view.tsx ---" in prompt
         assert ".hero { display: grid; }" in prompt
+
+    @pytest.mark.asyncio
+    async def test_consensus_prompts_embed_inline_target_file_contents(self):
+        request = DesignChangeRequest(
+            change_request="Add a card",
+            target_files=["/tmp/home-view.tsx", "/tmp/home-shell.css"],
+            target_file_contents=[
+                {"path": "/tmp/home-view.tsx", "content": "<section className=\"hero\">Hero</section>"},
+                {"path": "/tmp/home-shell.css", "content": ".hero { display: grid; }"},
+            ],
+            mode="consensus",
+            output_format="fragment",
+            model="google/gemini-3.1-pro-preview",
+            models=[{"model": "anthropic/claude-opus-4.6"}],
+        )
+
+        self.tool._ensure_prompt_model_context = lambda *args, **kwargs: None  # type: ignore[method-assign]
+        self.tool.prepare_chat_style_prompt = lambda request, system_prompt=None: request.change_request  # type: ignore[method-assign]
+
+        analysis_prompt = await self.tool._build_consensus_analysis_prompt(
+            request=request,
+            implementation_kind="react_ts",
+            grouped_files={"structure": ["/tmp/home-view.tsx"], "style": ["/tmp/home-shell.css"], "behavior": [], "other": []},
+            model_config={"model": "anthropic/claude-opus-4.6"},
+            analysis_index=0,
+        )
+        formatter_prompt = await self.tool._build_consensus_formatter_prompt(
+            request=request,
+            implementation_kind="react_ts",
+            grouped_files={"structure": ["/tmp/home-view.tsx"], "style": ["/tmp/home-shell.css"], "behavior": [], "other": []},
+            analyses=[{"model": "anthropic/claude-opus-4.6", "stance": "neutral", "analysis": "Looks safe."}],
+            formatter_model="google/gemini-3.1-pro-preview",
+        )
+
+        assert "INLINE TARGET FILE CONTENTS" in analysis_prompt
+        assert "INLINE TARGET FILE CONTENTS" in formatter_prompt
+        assert "--- BEGIN FILE: /tmp/home-view.tsx ---" in analysis_prompt
+        assert "--- BEGIN FILE: /tmp/home-view.tsx ---" in formatter_prompt
 
     @pytest.mark.asyncio
     async def test_execute_consensus_returns_structured_patch(self, tmp_path):

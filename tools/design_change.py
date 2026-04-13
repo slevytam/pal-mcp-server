@@ -328,6 +328,20 @@ class DesignChangeTool(SimpleTool):
         if "patch_format" in payload or payload.get("status") == "cannot_apply_safely":
             return payload
 
+        payload_type = payload.get("type")
+        if payload_type == "fragment_patch":
+            normalized_operations = self._normalize_fragment_entries(payload.get("target_files", []), request)
+            if normalized_operations:
+                return {
+                    "status": "success",
+                    "implementation_kind": infer_implementation_kind(request.target_files, request.framework_hint),
+                    "patch_format": "fragment_patch",
+                    "summary": payload.get("summary")
+                    or payload.get("change_summary")
+                    or "Generated fragment patch from formatter output.",
+                    "operations": normalized_operations,
+                }
+
         nested_full_file_patch = payload.get("full_file_patch")
         if isinstance(nested_full_file_patch, dict):
             files = nested_full_file_patch.get("files", [])
@@ -374,6 +388,72 @@ class DesignChangeTool(SimpleTool):
                 }
 
         return payload
+
+    def _normalize_fragment_entries(
+        self,
+        entries: Any,
+        request: DesignChangeRequest,
+    ) -> list[dict[str, Any]]:
+        if not isinstance(entries, list):
+            return []
+
+        grouped_files = group_target_files(request.target_files)
+        style_files = set(grouped_files["style"])
+        behavior_files = set(grouped_files["behavior"])
+        normalized_operations: list[dict[str, Any]] = []
+
+        for index, entry in enumerate(entries, start=1):
+            if not isinstance(entry, dict):
+                continue
+
+            file_path = entry.get("file") or entry.get("file_path")
+            content = entry.get("content") or entry.get("fragment") or entry.get("patch_content")
+            if not isinstance(file_path, str) or not isinstance(content, str):
+                continue
+
+            if file_path in style_files:
+                file_role = "style"
+            elif file_path in behavior_files:
+                file_role = "behavior"
+            else:
+                file_role = "structure"
+
+            raw_mode = str(entry.get("kind") or entry.get("insert_mode") or "").strip().lower()
+            anchor_text = entry.get("anchor_text")
+            target = None
+            kind = "append"
+            position = "end"
+
+            if isinstance(anchor_text, str) and anchor_text:
+                target = {"locator_type": "anchor_text", "value": anchor_text}
+
+            if raw_mode in {"replace", "replace_anchor"}:
+                kind = "replace"
+                position = "after"
+            elif raw_mode in {"before", "insert_before"}:
+                kind = "insert"
+                position = "before"
+            elif raw_mode in {"after", "insert_after", "insert"}:
+                kind = "insert"
+                position = "after"
+            elif raw_mode in {"append", "end", ""}:
+                kind = "append"
+                position = "end"
+                target = {"locator_type": "end_of_file"}
+
+            normalized_operations.append(
+                {
+                    "id": entry.get("id") or f"op_normalized_{index}",
+                    "file": file_path,
+                    "file_role": file_role,
+                    "kind": kind,
+                    "target": target,
+                    "position": position,
+                    "content": content,
+                }
+            )
+
+        return normalized_operations
 
     def _normalize_target_file_mapping(
         self,
@@ -515,21 +595,27 @@ class DesignChangeTool(SimpleTool):
     ) -> str:
         stance = model_config.get("stance", "neutral")
         stance_prompt = model_config.get("stance_prompt", "")
+        inline_file_context = self._build_inline_file_context(request)
+        prompt_body = (
+            f"CONSENSUS ANALYSIS STEP {analysis_index + 1}\n"
+            f"Change request: {request.change_request}\n\n"
+            f"Implementation kind: {implementation_kind}\n"
+            f"Output format target: {request.output_format}\n"
+            f"Structure files: {grouped_files['structure']}\n"
+            f"Style files: {grouped_files['style']}\n"
+            f"Behavior files: {grouped_files['behavior']}\n\n"
+            f"Provide a concise design recommendation from a {stance} perspective.\n"
+            "Focus on visual direction, integration risk, and whether fragment mode appears safe.\n"
+            "Do not return JSON. Do not return a patch. Keep the response under 350 words.\n"
+            f"{stance_prompt}"
+        )
+        if inline_file_context:
+            prompt_body += (
+                f"\n\n=== INLINE TARGET FILE CONTENTS ===\n{inline_file_context}\n=== END INLINE TARGET FILE CONTENTS ==="
+            )
         analysis_request = request.model_copy(
             update={
-                "change_request": (
-                    f"CONSENSUS ANALYSIS STEP {analysis_index + 1}\n"
-                    f"Change request: {request.change_request}\n\n"
-                    f"Implementation kind: {implementation_kind}\n"
-                    f"Output format target: {request.output_format}\n"
-                    f"Structure files: {grouped_files['structure']}\n"
-                    f"Style files: {grouped_files['style']}\n"
-                    f"Behavior files: {grouped_files['behavior']}\n\n"
-                    f"Provide a concise design recommendation from a {stance} perspective.\n"
-                    "Focus on visual direction, integration risk, and whether fragment mode appears safe.\n"
-                    "Do not return JSON. Do not return a patch. Keep the response under 350 words.\n"
-                    f"{stance_prompt}"
-                )
+                "change_request": prompt_body
             }
         )
         self._ensure_prompt_model_context(analysis_request, preferred_model=model_config.get("model"))
@@ -549,73 +635,79 @@ class DesignChangeTool(SimpleTool):
                 for analysis in analyses
             ]
         )
+        inline_file_context = self._build_inline_file_context(request)
+        prompt_body = (
+            f"CONSENSUS FORMATTER\n"
+            f"Primary change request: {request.change_request}\n\n"
+            f"Implementation kind: {implementation_kind}\n"
+            f"Desired output format: {request.output_format}\n"
+            f"Formatter model: {formatter_model}\n"
+            f"Structure files: {grouped_files['structure']}\n"
+            f"Style files: {grouped_files['style']}\n"
+            f"Behavior files: {grouped_files['behavior']}\n\n"
+            "Synthesize the consensus analyses below into a single structured patch response.\n"
+            "RESPOND WITH EXACTLY ONE JSON OBJECT AND NOTHING ELSE.\n"
+            "NO markdown fences.\n"
+            "NO commentary before or after JSON.\n"
+            "NO alternative field names.\n"
+            "Responses that do not match this schema are unusable and will be rejected.\n\n"
+            "You MUST return exactly one of these shapes:\n\n"
+            "1. full_file_patch response:\n"
+            "{\n"
+            '  "status": "success",\n'
+            f'  "implementation_kind": "{implementation_kind}",\n'
+            '  "patch_format": "full_file_patch",\n'
+            '  "summary": "Short summary",\n'
+            '  "updated_files": [\n'
+            "    {\n"
+            '      "file": "/absolute/path/to/file",\n'
+            '      "file_role": "structure",\n'
+            '      "content": "complete file contents"\n'
+            "    }\n"
+            "  ]\n"
+            "}\n\n"
+            "2. fragment_patch response:\n"
+            "{\n"
+            '  "status": "success",\n'
+            f'  "implementation_kind": "{implementation_kind}",\n'
+            '  "patch_format": "fragment_patch",\n'
+            '  "summary": "Short summary",\n'
+            '  "operations": [\n'
+            "    {\n"
+            '      "id": "op_1",\n'
+            '      "file": "/absolute/path/to/file",\n'
+            '      "file_role": "structure",\n'
+            '      "kind": "insert",\n'
+            '      "target": {"locator_type": "anchor_text", "value": "<section className=\\"hero\\">"},\n'
+            '      "position": "after",\n'
+            '      "content": "<section className=\\"metrics-panel\\">...</section>"\n'
+            "    }\n"
+            "  ]\n"
+            "}\n\n"
+            "3. cannot_apply_safely response:\n"
+            "{\n"
+            '  "status": "cannot_apply_safely",\n'
+            f'  "implementation_kind": "{implementation_kind}",\n'
+            '  "reason": "Explain why fragment or file patch could not be produced safely",\n'
+            '  "recommended_output_format": "full_files"\n'
+            "}\n\n"
+            "CRITICAL FIELD RULES:\n"
+            '- Use "updated_files", never "target_files", "file_edits", or nested "full_file_patch".\n'
+            '- Use "file", never "file_path".\n'
+            '- Use "content", never "file_content" or "patch_content".\n'
+            '- Only reference files from the provided target file list.\n'
+            '- If you choose full_file_patch, each entry must contain complete file contents.\n'
+            '- If you choose fragment_patch, each operation must use the exact field names shown above.\n'
+            '- If fragment mode is too risky based on the analyses, return cannot_apply_safely.\n\n'
+            f"{analysis_text}"
+        )
+        if inline_file_context:
+            prompt_body += (
+                f"\n\n=== INLINE TARGET FILE CONTENTS ===\n{inline_file_context}\n=== END INLINE TARGET FILE CONTENTS ==="
+            )
         formatter_request = request.model_copy(
             update={
-                "change_request": (
-                    f"CONSENSUS FORMATTER\n"
-                    f"Primary change request: {request.change_request}\n\n"
-                    f"Implementation kind: {implementation_kind}\n"
-                    f"Desired output format: {request.output_format}\n"
-                    f"Formatter model: {formatter_model}\n"
-                    f"Structure files: {grouped_files['structure']}\n"
-                    f"Style files: {grouped_files['style']}\n"
-                    f"Behavior files: {grouped_files['behavior']}\n\n"
-                    "Synthesize the consensus analyses below into a single structured patch response.\n"
-                    "RESPOND WITH EXACTLY ONE JSON OBJECT AND NOTHING ELSE.\n"
-                    "NO markdown fences.\n"
-                    "NO commentary before or after JSON.\n"
-                    "NO alternative field names.\n"
-                    "Responses that do not match this schema are unusable and will be rejected.\n\n"
-                    "You MUST return exactly one of these shapes:\n\n"
-                    "1. full_file_patch response:\n"
-                    "{\n"
-                    '  "status": "success",\n'
-                    f'  "implementation_kind": "{implementation_kind}",\n'
-                    '  "patch_format": "full_file_patch",\n'
-                    '  "summary": "Short summary",\n'
-                    '  "updated_files": [\n'
-                    "    {\n"
-                    '      "file": "/absolute/path/to/file",\n'
-                    '      "file_role": "structure",\n'
-                    '      "content": "complete file contents"\n'
-                    "    }\n"
-                    "  ]\n"
-                    "}\n\n"
-                    "2. fragment_patch response:\n"
-                    "{\n"
-                    '  "status": "success",\n'
-                    f'  "implementation_kind": "{implementation_kind}",\n'
-                    '  "patch_format": "fragment_patch",\n'
-                    '  "summary": "Short summary",\n'
-                    '  "operations": [\n'
-                    "    {\n"
-                    '      "id": "op_1",\n'
-                    '      "file": "/absolute/path/to/file",\n'
-                    '      "file_role": "structure",\n'
-                    '      "kind": "insert",\n'
-                    '      "target": {"locator_type": "anchor_text", "value": "<section className=\\"hero\\">"},\n'
-                    '      "position": "after",\n'
-                    '      "content": "<section className=\\"metrics-panel\\">...</section>"\n'
-                    "    }\n"
-                    "  ]\n"
-                    "}\n\n"
-                    "3. cannot_apply_safely response:\n"
-                    "{\n"
-                    '  "status": "cannot_apply_safely",\n'
-                    f'  "implementation_kind": "{implementation_kind}",\n'
-                    '  "reason": "Explain why fragment or file patch could not be produced safely",\n'
-                    '  "recommended_output_format": "full_files"\n'
-                    "}\n\n"
-                    "CRITICAL FIELD RULES:\n"
-                    '- Use "updated_files", never "target_files", "file_edits", or nested "full_file_patch".\n'
-                    '- Use "file", never "file_path".\n'
-                    '- Use "content", never "file_content" or "patch_content".\n'
-                    '- Only reference files from the provided target file list.\n'
-                    '- If you choose full_file_patch, each entry must contain complete file contents.\n'
-                    '- If you choose fragment_patch, each operation must use the exact field names shown above.\n'
-                    '- If fragment mode is too risky based on the analyses, return cannot_apply_safely.\n\n'
-                    f"{analysis_text}"
-                )
+                "change_request": prompt_body
             }
         )
         self._ensure_prompt_model_context(formatter_request, preferred_model=formatter_model)
