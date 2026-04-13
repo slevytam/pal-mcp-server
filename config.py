@@ -70,7 +70,7 @@ DEFAULT_THINKING_MODE_THINKDEEP = get_env("DEFAULT_THINKING_MODE_THINKDEEP", "hi
 
 # Consensus Tool Defaults
 # Consensus timeout and rate limiting settings
-DEFAULT_CONSENSUS_TIMEOUT = 120.0  # 2 minutes per model
+DEFAULT_CONSENSUS_TIMEOUT = 300.0  # 5 minutes per model
 DEFAULT_CONSENSUS_MAX_INSTANCES_PER_COMBINATION = 2
 
 # NOTE: Consensus tool now uses sequential processing for MCP compatibility
