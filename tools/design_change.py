@@ -425,6 +425,10 @@ class DesignChangeTool(SimpleTool):
             if kind == "append":
                 normalized["position"] = "end"
                 normalized["target"] = {"locator_type": "end_of_file"}
+            elif kind == "replace":
+                normalized.setdefault("position", "after")
+            elif kind == "insert":
+                normalized.setdefault("position", "after")
 
             normalized_operations.append(normalized)
 
@@ -740,6 +744,10 @@ class DesignChangeTool(SimpleTool):
             '- Only reference files from the provided target file list.\n'
             '- If you choose full_file_patch, each entry must contain complete file contents.\n'
             '- If you choose fragment_patch, each operation must use the exact field names shown above.\n'
+            '- If you choose fragment_patch, every operation must include id, file, file_role, kind, position, and content.\n'
+            '- Never omit the position field in a fragment_patch operation.\n'
+            '- Append operations must always use kind="append", position="end", and target={"locator_type":"end_of_file"}.\n'
+            '- Insert and replace operations must include a target object.\n'
             '- If fragment mode is too risky based on the analyses, return cannot_apply_safely.\n\n'
             f"{analysis_text}"
         )

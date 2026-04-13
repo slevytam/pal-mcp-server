@@ -199,6 +199,35 @@ class TestDesignChangeTool:
         assert payload["operations"][0]["position"] == "end"
         assert payload["operations"][0]["target"]["locator_type"] == "end_of_file"
 
+    def test_format_response_canonicalizes_missing_position_in_fragment_patch(self):
+        request = DesignChangeRequest(
+            change_request="Add a card",
+            target_files=["/tmp/home-view.tsx"],
+            mode="single",
+            output_format="fragment",
+        )
+        response = {
+            "status": "success",
+            "implementation_kind": "react_ts",
+            "patch_format": "fragment_patch",
+            "summary": "Adds a compact metrics panel.",
+            "operations": [
+                {
+                    "id": "op_replace_hero",
+                    "file": "/tmp/home-view.tsx",
+                    "file_role": "structure",
+                    "kind": "replace",
+                    "target": {"locator_type": "anchor_text", "value": "<section className=\"hero\">Hero</section>"},
+                    "content": "<><section className=\"hero\">Hero</section><section className=\"metrics-panel\">Metrics</section></>",
+                }
+            ],
+        }
+
+        formatted = self.tool.format_response(json.dumps(response), request)
+        payload = json.loads(formatted)
+        assert payload["patch_format"] == "fragment_patch"
+        assert payload["operations"][0]["position"] == "after"
+
     def test_format_response_full_file_patch(self):
         request = DesignChangeRequest(
             change_request="Update full files",
@@ -379,6 +408,8 @@ class TestDesignChangeTool:
         assert "INLINE TARGET FILE CONTENTS" in formatter_prompt
         assert "--- BEGIN FILE: /tmp/home-view.tsx ---" in analysis_prompt
         assert "--- BEGIN FILE: /tmp/home-view.tsx ---" in formatter_prompt
+        assert "Never omit the position field" in formatter_prompt
+        assert 'position="end"' in formatter_prompt
 
     @pytest.mark.asyncio
     async def test_execute_consensus_returns_structured_patch(self, tmp_path):

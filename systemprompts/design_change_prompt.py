@@ -31,6 +31,11 @@ Fragment patch rules:
 - Only include behavior changes if the request requires interaction
 - CSS and JS additions should usually append to the end of the file
 - Structure insertions must use a stable anchor_text target unless end-of-file insertion is explicitly appropriate
+- Every fragment operation must include: id, file, file_role, kind, position, and content
+- Never omit the position field
+- Append operations must always use position="end"
+- Append operations must always use target={"locator_type":"end_of_file"}
+- Replace and insert operations must include a target
 
 Full file patch rules:
 - Return complete file contents for the changed files
