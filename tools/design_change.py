@@ -40,6 +40,10 @@ class DesignChangeRequest(BaseModel):
 
     change_request: str = Field(..., description="Requested UI/design change to make.")
     target_files: list[str] = Field(..., description="Absolute file paths for structure/style/behavior files.")
+    context_files: list[str] = Field(
+        default_factory=list,
+        description="Optional reference-only file paths that provide design or layout context but must not be modified.",
+    )
     mode: DesignMode = Field(default="single", description="Whether to use one model or a consensus workflow.")
     output_format: OutputFormat = Field(
         default="fragment",
@@ -52,6 +56,10 @@ class DesignChangeRequest(BaseModel):
     target_file_contents: list[InlineTargetFile] = Field(
         default_factory=list,
         description="Optional inline file contents to use when target_files are not readable from PAL's runtime.",
+    )
+    context_file_contents: list[InlineTargetFile] = Field(
+        default_factory=list,
+        description="Optional inline file contents to use when context_files are not readable from PAL's runtime.",
     )
     model: str | None = Field(None, description=COMMON_FIELD_DESCRIPTIONS["model"])
     models: list[dict] | None = Field(
@@ -69,9 +77,12 @@ class DesignChangeRequest(BaseModel):
             raise ValueError("'models' is only valid when mode='consensus'")
         if self.mode == "consensus" and not self.models:
             raise ValueError("'models' is required when mode='consensus'")
-        inline_paths = [item.path for item in self.target_file_contents]
-        if len(inline_paths) != len(set(inline_paths)):
+        target_inline_paths = [item.path for item in self.target_file_contents]
+        if len(target_inline_paths) != len(set(target_inline_paths)):
             raise ValueError("'target_file_contents' must not contain duplicate paths")
+        context_inline_paths = [item.path for item in self.context_file_contents]
+        if len(context_inline_paths) != len(set(context_inline_paths)):
+            raise ValueError("'context_file_contents' must not contain duplicate paths")
         return self
 
 
@@ -86,7 +97,8 @@ class DesignChangeTool(SimpleTool):
             "Generate structured UI design-change patches for existing implementations such as "
             "TSX/CSS or HTML/CSS/JS. Supports fragment patches and full-file patches. "
             "If PAL may not share the caller's filesystem, provide inline fallback file content via "
-            "`target_file_contents`."
+            "`target_file_contents`. Use `context_files` and `context_file_contents` for additional "
+            "reference-only UI context that should inform the design but must not be modified."
         )
 
     def get_system_prompt(self) -> str:
@@ -111,6 +123,11 @@ class DesignChangeTool(SimpleTool):
                 "type": "array",
                 "items": {"type": "string"},
                 "description": "Absolute paths to structure/style/behavior files.",
+            },
+            "context_files": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional reference-only file paths that provide design or layout context but must not be modified.",
             },
             "mode": {
                 "type": "string",
@@ -145,6 +162,25 @@ class DesignChangeTool(SimpleTool):
                     "additionalProperties": False,
                 },
             },
+            "context_file_contents": {
+                "type": "array",
+                "description": "Optional inline file contents to use when context_files are not readable from PAL's runtime.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Absolute file path this inline content corresponds to.",
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "Raw file contents for the context path.",
+                        },
+                    },
+                    "required": ["path", "content"],
+                    "additionalProperties": False,
+                },
+            },
             "models": {
                 "type": "array",
                 "items": {"type": "object"},
@@ -163,12 +199,16 @@ class DesignChangeTool(SimpleTool):
     def _get_inline_file_map(self, request: DesignChangeRequest) -> dict[str, str]:
         return {item.path: item.content for item in request.target_file_contents}
 
+    def _get_context_inline_file_map(self, request: DesignChangeRequest) -> dict[str, str]:
+        return {item.path: item.content for item in request.context_file_contents}
+
     def _validate_file_paths(self, request) -> str | None:
         import os
 
         inline_file_map = self._get_inline_file_map(request)
+        context_inline_file_map = self._get_context_inline_file_map(request)
 
-        for file_path in request.target_files:
+        for file_path in request.target_files + request.context_files:
             if not os.path.isabs(file_path):
                 return (
                     f"Error: All file paths must be FULL absolute paths to real files / folders - DO NOT SHORTEN. "
@@ -185,6 +225,17 @@ class DesignChangeTool(SimpleTool):
             if inline_path not in request.target_files:
                 return (
                     "Error: Every target_file_contents entry must correspond to a path listed in target_files. "
+                    f"Unexpected inline path: {inline_path}"
+                )
+        for inline_path in context_inline_file_map:
+            if not os.path.isabs(inline_path):
+                return (
+                    "Error: context_file_contents paths must be FULL absolute paths to real files / folders - "
+                    f"DO NOT SHORTEN. Received relative path: {inline_path}"
+                )
+            if inline_path not in request.context_files:
+                return (
+                    "Error: Every context_file_contents entry must correspond to a path listed in context_files. "
                     f"Unexpected inline path: {inline_path}"
                 )
 
@@ -213,6 +264,31 @@ class DesignChangeTool(SimpleTool):
                 f"{joined}"
             )
 
+        unreadable_context_files: list[str] = []
+        for file_path in request.context_files:
+            if file_path in context_inline_file_map:
+                continue
+            try:
+                resolved_path = resolve_and_validate_path(file_path)
+            except (PermissionError, ValueError) as exc:
+                unreadable_context_files.append(f"{file_path} ({exc})")
+                continue
+
+            if not resolved_path.exists():
+                unreadable_context_files.append(f"{file_path} (file does not exist)")
+            elif not resolved_path.is_file():
+                unreadable_context_files.append(f"{file_path} (path is not a file)")
+
+        if unreadable_context_files:
+            joined = "\n".join(f"- {entry}" for entry in unreadable_context_files)
+            return (
+                "Error: design_change could not access the requested context_files.\n"
+                "Each context file must be a readable absolute path to an existing file.\n"
+                "If PAL may not share the caller's filesystem, retry this tool call with matching inline "
+                "`context_file_contents` entries for the unreadable paths.\n"
+                f"{joined}"
+            )
+
         return None
 
     def get_request_prompt(self, request) -> str:
@@ -220,37 +296,65 @@ class DesignChangeTool(SimpleTool):
 
     def get_request_files(self, request) -> list:
         inline_file_map = self._get_inline_file_map(request)
-        return [file_path for file_path in request.target_files if file_path not in inline_file_map]
+        context_inline_file_map = self._get_context_inline_file_map(request)
+        disk_target_files = [file_path for file_path in request.target_files if file_path not in inline_file_map]
+        disk_context_files = [file_path for file_path in request.context_files if file_path not in context_inline_file_map]
+        return disk_target_files + disk_context_files
 
     def set_request_files(self, request, files: list) -> None:
-        request.target_files = files
+        original_target_files = set(request.target_files)
+        original_context_files = set(request.context_files)
+        disk_target_files = [file_path for file_path in files if file_path in original_target_files]
+        disk_context_files = [file_path for file_path in files if file_path in original_context_files]
+        request.target_files = disk_target_files
+        request.context_files = disk_context_files
 
     async def prepare_prompt(self, request: DesignChangeRequest) -> str:
         self._ensure_prompt_model_context(request)
         implementation_kind = infer_implementation_kind(request.target_files, request.framework_hint)
         grouped_files = group_target_files(request.target_files)
-        inline_file_context = self._build_inline_file_context(request)
+        inline_target_file_context = self._build_inline_file_context(request.target_file_contents)
+        inline_context_file_context = self._build_inline_file_context(request.context_file_contents)
 
-        request.change_request = (
+        prompt_body = (
             f"CHANGE REQUEST:\n{request.change_request}\n\n"
             f"MODE: {request.mode}\n"
             f"OUTPUT FORMAT: {request.output_format}\n"
             f"IMPLEMENTATION KIND: {implementation_kind}\n\n"
-            f"TARGET FILES:\n" + "\n".join(request.target_files) + "\n\n"
-            f"{self._build_implementation_instructions(implementation_kind, request.output_format, grouped_files)}"
+            f"TARGET FILES:\n{self._format_prompt_file_list(request.target_files)}\n\n"
         )
-        if inline_file_context:
-            request.change_request += f"\n\n=== INLINE TARGET FILE CONTENTS ===\n{inline_file_context}\n=== END INLINE TARGET FILE CONTENTS ==="
+        if request.context_files:
+            prompt_body += (
+                "REFERENCE-ONLY CONTEXT FILES:\n"
+                f"{self._format_prompt_file_list(request.context_files)}\n\n"
+            )
+        prompt_body += self._build_implementation_instructions(implementation_kind, request.output_format, grouped_files)
+
+        request.change_request = prompt_body
+        if inline_target_file_context:
+            request.change_request += (
+                f"\n\n=== INLINE TARGET FILE CONTENTS ===\n{inline_target_file_context}\n=== END INLINE TARGET FILE CONTENTS ==="
+            )
+        if inline_context_file_context:
+            request.change_request += (
+                f"\n\n=== INLINE REFERENCE CONTEXT FILES ===\n{inline_context_file_context}\n=== END INLINE REFERENCE CONTEXT FILES ==="
+            )
         return self.prepare_chat_style_prompt(request, system_prompt=self.get_system_prompt())
 
-    def _build_inline_file_context(self, request: DesignChangeRequest) -> str:
+    def _build_inline_file_context(self, items: list[InlineTargetFile]) -> str:
         sections: list[str] = []
-        for item in request.target_file_contents:
+        for item in items:
             normalized_content = item.content.replace("\r\n", "\n").replace("\r", "\n")
             sections.append(
                 f"--- BEGIN FILE: {item.path} ---\n{normalized_content}\n--- END FILE: {item.path} ---"
             )
         return "\n\n".join(sections)
+
+    @staticmethod
+    def _format_prompt_file_list(files: list[str]) -> str:
+        if not files:
+            return "(none)"
+        return "\n".join(files)
 
     async def execute(self, arguments: dict[str, Any]) -> list[TextContent]:
         if arguments.get("mode") != "consensus":
@@ -701,7 +805,8 @@ class DesignChangeTool(SimpleTool):
     ) -> str:
         stance = model_config.get("stance", "neutral")
         stance_prompt = model_config.get("stance_prompt", "")
-        inline_file_context = self._build_inline_file_context(request)
+        inline_target_file_context = self._build_inline_file_context(request.target_file_contents)
+        inline_context_file_context = self._build_inline_file_context(request.context_file_contents)
         prompt_body = (
             f"CONSENSUS ANALYSIS STEP {analysis_index + 1}\n"
             f"Change request: {request.change_request}\n\n"
@@ -710,14 +815,25 @@ class DesignChangeTool(SimpleTool):
             f"Structure files: {grouped_files['structure']}\n"
             f"Style files: {grouped_files['style']}\n"
             f"Behavior files: {grouped_files['behavior']}\n\n"
+            f"Editable target files:\n{self._format_prompt_file_list(request.target_files)}\n\n"
             f"Provide a concise design recommendation from a {stance} perspective.\n"
             "Focus on visual direction, integration risk, and whether fragment mode appears safe.\n"
+            "Use any reference-only context files to understand site-wide patterns, but do not recommend modifying them.\n"
             "Do not return JSON. Do not return a patch. Keep the response under 350 words.\n"
             f"{stance_prompt}"
         )
-        if inline_file_context:
+        if request.context_files:
             prompt_body += (
-                f"\n\n=== INLINE TARGET FILE CONTENTS ===\n{inline_file_context}\n=== END INLINE TARGET FILE CONTENTS ==="
+                "\n\nREFERENCE-ONLY CONTEXT FILES:\n"
+                f"{self._format_prompt_file_list(request.context_files)}"
+            )
+        if inline_target_file_context:
+            prompt_body += (
+                f"\n\n=== INLINE TARGET FILE CONTENTS ===\n{inline_target_file_context}\n=== END INLINE TARGET FILE CONTENTS ==="
+            )
+        if inline_context_file_context:
+            prompt_body += (
+                f"\n\n=== INLINE REFERENCE CONTEXT FILES ===\n{inline_context_file_context}\n=== END INLINE REFERENCE CONTEXT FILES ==="
             )
         analysis_request = request.model_copy(
             update={
@@ -741,7 +857,8 @@ class DesignChangeTool(SimpleTool):
                 for analysis in analyses
             ]
         )
-        inline_file_context = self._build_inline_file_context(request)
+        inline_target_file_context = self._build_inline_file_context(request.target_file_contents)
+        inline_context_file_context = self._build_inline_file_context(request.context_file_contents)
         prompt_body = (
             f"CONSENSUS FORMATTER\n"
             f"Primary change request: {request.change_request}\n\n"
@@ -751,6 +868,7 @@ class DesignChangeTool(SimpleTool):
             f"Structure files: {grouped_files['structure']}\n"
             f"Style files: {grouped_files['style']}\n"
             f"Behavior files: {grouped_files['behavior']}\n\n"
+            f"Editable target files:\n{self._format_prompt_file_list(request.target_files)}\n\n"
             "Synthesize the consensus analyses below into a single structured patch response.\n"
             "RESPOND WITH EXACTLY ONE JSON OBJECT AND NOTHING ELSE.\n"
             "NO markdown fences.\n"
@@ -802,6 +920,7 @@ class DesignChangeTool(SimpleTool):
             '- Use "file", never "file_path".\n'
             '- Use "content", never "file_content" or "patch_content".\n'
             '- Only reference files from the provided target file list.\n'
+            '- Never emit context_files in the patch; they are reference-only.\n'
             '- If you choose full_file_patch, each entry must contain complete file contents.\n'
             '- If you choose fragment_patch, each operation must use the exact field names shown above.\n'
             '- If you choose fragment_patch, every operation must include id, file, file_role, kind, position, and content.\n'
@@ -811,9 +930,18 @@ class DesignChangeTool(SimpleTool):
             '- If fragment mode is too risky based on the analyses, return cannot_apply_safely.\n\n'
             f"{analysis_text}"
         )
-        if inline_file_context:
+        if request.context_files:
             prompt_body += (
-                f"\n\n=== INLINE TARGET FILE CONTENTS ===\n{inline_file_context}\n=== END INLINE TARGET FILE CONTENTS ==="
+                "\n\nREFERENCE-ONLY CONTEXT FILES:\n"
+                f"{self._format_prompt_file_list(request.context_files)}"
+            )
+        if inline_target_file_context:
+            prompt_body += (
+                f"\n\n=== INLINE TARGET FILE CONTENTS ===\n{inline_target_file_context}\n=== END INLINE TARGET FILE CONTENTS ==="
+            )
+        if inline_context_file_context:
+            prompt_body += (
+                f"\n\n=== INLINE REFERENCE CONTEXT FILES ===\n{inline_context_file_context}\n=== END INLINE REFERENCE CONTEXT FILES ==="
             )
         formatter_request = request.model_copy(
             update={

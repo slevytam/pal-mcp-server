@@ -22,6 +22,7 @@ class TestDesignChangeTool:
         assert self.tool.get_name() == "design_change"
         assert "structured UI design-change patches" in self.tool.get_description()
         assert "target_file_contents" in self.tool.get_description()
+        assert "context_files" in self.tool.get_description()
 
     def test_schema_structure(self):
         schema = self.tool.get_input_schema()
@@ -37,6 +38,8 @@ class TestDesignChangeTool:
         assert "images" in properties
         assert "models" in properties
         assert "target_file_contents" in properties
+        assert "context_files" in properties
+        assert "context_file_contents" in properties
 
     def test_request_validation_single_mode(self):
         request = DesignChangeRequest(
@@ -78,6 +81,25 @@ class TestDesignChangeTool:
             target_file_contents=[
                 {"path": "/tmp/home-view.tsx", "content": "<section className=\"hero\">Hero</section>"},
                 {"path": "/tmp/home-shell.css", "content": ".hero { display: grid; }"},
+            ],
+            mode="single",
+            output_format="fragment",
+        )
+
+        error = self.tool._validate_file_paths(request)
+        assert error is None
+
+    def test_validate_file_paths_allows_inline_context_fallback_for_unreadable_paths(self):
+        request = DesignChangeRequest(
+            change_request="Add a card",
+            target_files=["/tmp/home-view.tsx", "/tmp/home-shell.css"],
+            context_files=["/tmp/reference-page.tsx"],
+            target_file_contents=[
+                {"path": "/tmp/home-view.tsx", "content": "<section className=\"hero\">Hero</section>"},
+                {"path": "/tmp/home-shell.css", "content": ".hero { display: grid; }"},
+            ],
+            context_file_contents=[
+                {"path": "/tmp/reference-page.tsx", "content": "<main><section className=\"canvas\">Reference</section></main>"}
             ],
             mode="single",
             output_format="fragment",
@@ -438,13 +460,43 @@ class TestDesignChangeTool:
         assert ".hero { display: grid; }" in prompt
 
     @pytest.mark.asyncio
+    async def test_prepare_prompt_includes_reference_only_context_files(self):
+        request = DesignChangeRequest(
+            change_request="Add a card",
+            target_files=["/tmp/home-view.tsx", "/tmp/home-shell.css"],
+            context_files=["/tmp/reference-page.tsx"],
+            target_file_contents=[
+                {"path": "/tmp/home-view.tsx", "content": "<section className=\"hero\">Hero</section>"},
+                {"path": "/tmp/home-shell.css", "content": ".hero { display: grid; }"},
+            ],
+            context_file_contents=[
+                {"path": "/tmp/reference-page.tsx", "content": "<main><section className=\"canvas\">Reference</section></main>"}
+            ],
+            mode="single",
+            output_format="fragment",
+        )
+
+        self.tool._ensure_prompt_model_context = lambda *args, **kwargs: None  # type: ignore[method-assign]
+        self.tool.prepare_chat_style_prompt = lambda request, system_prompt=None: request.change_request  # type: ignore[method-assign]
+
+        prompt = await self.tool.prepare_prompt(request)
+        assert "REFERENCE-ONLY CONTEXT FILES" in prompt
+        assert "/tmp/reference-page.tsx" in prompt
+        assert "INLINE REFERENCE CONTEXT FILES" in prompt
+        assert "Reference</section>" in prompt
+
+    @pytest.mark.asyncio
     async def test_consensus_prompts_embed_inline_target_file_contents(self):
         request = DesignChangeRequest(
             change_request="Add a card",
             target_files=["/tmp/home-view.tsx", "/tmp/home-shell.css"],
+            context_files=["/tmp/reference-page.tsx"],
             target_file_contents=[
                 {"path": "/tmp/home-view.tsx", "content": "<section className=\"hero\">Hero</section>"},
                 {"path": "/tmp/home-shell.css", "content": ".hero { display: grid; }"},
+            ],
+            context_file_contents=[
+                {"path": "/tmp/reference-page.tsx", "content": "<main><section className=\"canvas\">Reference</section></main>"}
             ],
             mode="consensus",
             output_format="fragment",
@@ -472,8 +524,15 @@ class TestDesignChangeTool:
 
         assert "INLINE TARGET FILE CONTENTS" in analysis_prompt
         assert "INLINE TARGET FILE CONTENTS" in formatter_prompt
+        assert "REFERENCE-ONLY CONTEXT FILES" in analysis_prompt
+        assert "REFERENCE-ONLY CONTEXT FILES" in formatter_prompt
+        assert "INLINE REFERENCE CONTEXT FILES" in analysis_prompt
+        assert "INLINE REFERENCE CONTEXT FILES" in formatter_prompt
         assert "--- BEGIN FILE: /tmp/home-view.tsx ---" in analysis_prompt
         assert "--- BEGIN FILE: /tmp/home-view.tsx ---" in formatter_prompt
+        assert "--- BEGIN FILE: /tmp/reference-page.tsx ---" in analysis_prompt
+        assert "--- BEGIN FILE: /tmp/reference-page.tsx ---" in formatter_prompt
+        assert "Never emit context_files in the patch" in formatter_prompt
         assert "Never omit the position field" in formatter_prompt
         assert 'position="end"' in formatter_prompt
 

@@ -328,8 +328,15 @@ PROMPT_TEMPLATES = {
     },
     "design_change": {
         "name": "design_change",
-        "description": "Generate structured UI design patches for existing files; if PAL may not share the caller filesystem, include target_file_contents",
-        "template": "Generate a structured UI patch with {model}. If PAL may not share the caller filesystem, pass both target_files and matching target_file_contents.",
+        "description": (
+            "Generate structured UI design patches for existing files; if PAL may not share the caller filesystem, "
+            "include target_file_contents, and use context_files/context_file_contents for extra reference-only UI context."
+        ),
+        "template": (
+            "Generate a structured UI patch with {model}. If PAL may not share the caller filesystem, pass both "
+            "target_files and matching target_file_contents. If another page or component should inform the design "
+            "without being modified, pass it via context_files and matching context_file_contents."
+        ),
     },
     "design_change_apply": {
         "name": "design_change_apply",

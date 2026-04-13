@@ -46,6 +46,8 @@ Supported MVP combinations include:
 - `models`: Required for consensus mode; list of models to consult
 - `framework_hint`: Optional override such as `react_ts`, `react_js`, `html_css`, `html_css_js`
 - `target_file_contents`: Optional inline file contents keyed by absolute path; use this when PAL cannot read `target_files` directly from its own runtime
+- `context_files`: Optional reference-only files that should inform the design but must not be modified
+- `context_file_contents`: Optional inline fallback content for `context_files`
 - `images`: Optional screenshots or mockups
 - `continuation_id`: Continue previous discussions
 
@@ -77,6 +79,64 @@ Example:
     {
       "path": "/abs/path/home-shell.css",
       "content": ".hero { display: grid; }"
+    }
+  ],
+  "mode": "consensus",
+  "output_format": "fragment"
+}
+```
+
+## Reference-Only Context Files
+
+Sometimes the files you want to edit are too sparse on their own. For example:
+
+- a blank main canvas page that should match another fully designed page
+- a new settings view that should borrow layout rhythm from an existing admin screen
+- a new panel that should echo card patterns from another route
+
+In those cases, provide:
+
+- `target_files`: files PAL may patch
+- `context_files`: files PAL may read for reference only
+
+If PAL may not share the caller filesystem, also provide:
+
+- `target_file_contents`
+- `context_file_contents`
+
+PAL will use the context files to inform the design, but the returned patch is still restricted to `target_files`.
+
+Example:
+
+```json
+{
+  "change_request": "Design a richer main canvas that matches the rest of the site.",
+  "target_files": [
+    "/abs/path/home-view.tsx",
+    "/abs/path/home-shell.css"
+  ],
+  "context_files": [
+    "/abs/path/orders-page.tsx",
+    "/abs/path/orders-page.css"
+  ],
+  "target_file_contents": [
+    {
+      "path": "/abs/path/home-view.tsx",
+      "content": "export function HomeView() { ... }"
+    },
+    {
+      "path": "/abs/path/home-shell.css",
+      "content": ".home-shell { ... }"
+    }
+  ],
+  "context_file_contents": [
+    {
+      "path": "/abs/path/orders-page.tsx",
+      "content": "export function OrdersPage() { ... }"
+    },
+    {
+      "path": "/abs/path/orders-page.css",
+      "content": ".orders-canvas { ... }"
     }
   ],
   "mode": "consensus",
