@@ -83,7 +83,9 @@ class DesignChangeTool(SimpleTool):
     def get_description(self) -> str:
         return (
             "Generate structured UI design-change patches for existing implementations such as "
-            "TSX/CSS or HTML/CSS/JS. Supports fragment patches and full-file patches."
+            "TSX/CSS or HTML/CSS/JS. Supports fragment patches and full-file patches. "
+            "If PAL may not share the caller's filesystem, provide inline fallback file content via "
+            "`target_file_contents`."
         )
 
     def get_system_prompt(self) -> str:
@@ -205,6 +207,8 @@ class DesignChangeTool(SimpleTool):
             return (
                 "Error: design_change could not access the requested target_files.\n"
                 "Each target file must be a readable absolute path to an existing file.\n"
+                "If PAL may not share the caller's filesystem, retry this tool call with matching inline "
+                "`target_file_contents` entries for the unreadable paths.\n"
                 f"{joined}"
             )
 

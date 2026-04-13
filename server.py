@@ -328,8 +328,8 @@ PROMPT_TEMPLATES = {
     },
     "design_change": {
         "name": "design_change",
-        "description": "Generate structured UI design patches for existing files",
-        "template": "Generate a structured UI patch with {model}",
+        "description": "Generate structured UI design patches for existing files; if PAL may not share the caller filesystem, include target_file_contents",
+        "template": "Generate a structured UI patch with {model}. If PAL may not share the caller filesystem, pass both target_files and matching target_file_contents.",
     },
     "design_change_apply": {
         "name": "design_change_apply",

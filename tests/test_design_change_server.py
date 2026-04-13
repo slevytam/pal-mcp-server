@@ -63,3 +63,9 @@ class TestDesignChangeServerIntegration:
 
         assert "design_change" in prompt_names
         assert "design_change_apply" in prompt_names
+
+    def test_design_change_prompt_template_mentions_inline_fallback(self):
+        template_info = server.PROMPT_TEMPLATES["design_change"]
+
+        assert "target_file_contents" in template_info["description"]
+        assert "target_file_contents" in template_info["template"]

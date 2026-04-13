@@ -19,6 +19,7 @@ class TestDesignChangeTool:
     def test_tool_metadata(self):
         assert self.tool.get_name() == "design_change"
         assert "structured UI design-change patches" in self.tool.get_description()
+        assert "target_file_contents" in self.tool.get_description()
 
     def test_schema_structure(self):
         schema = self.tool.get_input_schema()
@@ -66,6 +67,7 @@ class TestDesignChangeTool:
         assert error is not None
         assert "could not access the requested target_files" in error
         assert "file does not exist" in error
+        assert "target_file_contents" in error
 
     def test_validate_file_paths_allows_inline_fallback_for_unreadable_paths(self):
         request = DesignChangeRequest(
