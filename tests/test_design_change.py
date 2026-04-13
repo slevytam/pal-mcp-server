@@ -33,6 +33,7 @@ class TestDesignChangeTool:
         assert "framework_hint" in properties
         assert "images" in properties
         assert "models" in properties
+        assert "target_file_contents" in properties
 
     def test_request_validation_single_mode(self):
         request = DesignChangeRequest(
@@ -65,6 +66,21 @@ class TestDesignChangeTool:
         assert error is not None
         assert "could not access the requested target_files" in error
         assert "file does not exist" in error
+
+    def test_validate_file_paths_allows_inline_fallback_for_unreadable_paths(self):
+        request = DesignChangeRequest(
+            change_request="Add a card",
+            target_files=["/tmp/home-view.tsx", "/tmp/home-shell.css"],
+            target_file_contents=[
+                {"path": "/tmp/home-view.tsx", "content": "<section className=\"hero\">Hero</section>"},
+                {"path": "/tmp/home-shell.css", "content": ".hero { display: grid; }"},
+            ],
+            mode="single",
+            output_format="fragment",
+        )
+
+        error = self.tool._validate_file_paths(request)
+        assert error is None
 
     def test_detection_helpers(self):
         assert classify_file_role("/tmp/App.tsx") == "structure"
@@ -239,6 +255,27 @@ class TestDesignChangeTool:
 
         prompt = await self.tool.prepare_prompt(request)
         assert "CHANGE REQUEST:" in prompt
+
+    @pytest.mark.asyncio
+    async def test_prepare_prompt_embeds_inline_target_file_contents(self):
+        request = DesignChangeRequest(
+            change_request="Add a card",
+            target_files=["/tmp/home-view.tsx", "/tmp/home-shell.css"],
+            target_file_contents=[
+                {"path": "/tmp/home-view.tsx", "content": "<section className=\"hero\">Hero</section>"},
+                {"path": "/tmp/home-shell.css", "content": ".hero { display: grid; }"},
+            ],
+            mode="single",
+            output_format="fragment",
+        )
+
+        self.tool._ensure_prompt_model_context = lambda *args, **kwargs: None  # type: ignore[method-assign]
+        self.tool.prepare_chat_style_prompt = lambda request, system_prompt=None: request.change_request  # type: ignore[method-assign]
+
+        prompt = await self.tool.prepare_prompt(request)
+        assert "INLINE TARGET FILE CONTENTS" in prompt
+        assert "--- BEGIN FILE: /tmp/home-view.tsx ---" in prompt
+        assert ".hero { display: grid; }" in prompt
 
     @pytest.mark.asyncio
     async def test_execute_consensus_returns_structured_patch(self, tmp_path):

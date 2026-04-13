@@ -2,7 +2,7 @@
 
 **Request targeted UI changes against existing TSX/CSS or HTML/CSS/JS implementations and get structured patches back**
 
-The `design_change` tool is built for UI evolution work where you already have files on disk and want PAL to propose a design change in a machine-friendly format. It supports both **single-model** and **consensus** workflows, and can return either:
+The `design_change` tool is built for UI evolution work where you already have files on disk or available in another agent context and want PAL to propose a design change in a machine-friendly format. It supports both **single-model** and **consensus** workflows, and can return either:
 
 - a small `fragment_patch`
 - a `full_file_patch` with complete updated files
@@ -45,8 +45,44 @@ Supported MVP combinations include:
 - `model`: Formatter model for single mode, or final formatter model for consensus mode
 - `models`: Required for consensus mode; list of models to consult
 - `framework_hint`: Optional override such as `react_ts`, `react_js`, `html_css`, `html_css_js`
+- `target_file_contents`: Optional inline file contents keyed by absolute path; use this when PAL cannot read `target_files` directly from its own runtime
 - `images`: Optional screenshots or mockups
 - `continuation_id`: Continue previous discussions
+
+## Path Visibility and Inline Fallback
+
+If PAL is running in a different workspace, container, or `uvx` context than the caller, absolute paths that are real to the caller may still be unreadable from PAL's process.
+
+In that case, provide both:
+
+- `target_files`: The canonical absolute paths you want the patch to reference
+- `target_file_contents`: Inline content for those same paths
+
+When inline content is supplied, `design_change` will use it as the source of truth for prompt context instead of failing on path visibility.
+
+Example:
+
+```json
+{
+  "change_request": "Add a compact metrics panel below the hero section.",
+  "target_files": [
+    "/abs/path/home-view.tsx",
+    "/abs/path/home-shell.css"
+  ],
+  "target_file_contents": [
+    {
+      "path": "/abs/path/home-view.tsx",
+      "content": "export function HomeView() { ... }"
+    },
+    {
+      "path": "/abs/path/home-shell.css",
+      "content": ".hero { display: grid; }"
+    }
+  ],
+  "mode": "consensus",
+  "output_format": "fragment"
+}
+```
 
 ## Output Shapes
 
@@ -139,6 +175,7 @@ Use design_change in consensus mode to redesign the top portion of this dashboar
 ## Best Practices
 
 - Keep `target_files` minimal and relevant.
+- When PAL is not guaranteed to share the caller's filesystem, always provide `target_file_contents`.
 - Prefer `fragment` mode for small additive UI changes.
 - Prefer `full_files` when the layout needs broader reshaping.
 - In consensus mode, use a cheap model for deliberation and a reliable formatter model for the final patch.

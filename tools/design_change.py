@@ -27,6 +27,13 @@ DesignMode = Literal["single", "consensus"]
 OutputFormat = Literal["fragment", "full_files"]
 
 
+class InlineTargetFile(BaseModel):
+    """Inline fallback content for a target file when PAL cannot read it from disk."""
+
+    path: str = Field(..., description="Absolute file path this inline content corresponds to.")
+    content: str = Field(..., description="Raw file contents for the target path.")
+
+
 class DesignChangeRequest(BaseModel):
     """Request model for the design change tool."""
 
@@ -40,6 +47,10 @@ class DesignChangeRequest(BaseModel):
     framework_hint: str | None = Field(
         default="auto",
         description="Optional override such as react_ts, react_js, html_css, html_css_js.",
+    )
+    target_file_contents: list[InlineTargetFile] = Field(
+        default_factory=list,
+        description="Optional inline file contents to use when target_files are not readable from PAL's runtime.",
     )
     model: str | None = Field(None, description=COMMON_FIELD_DESCRIPTIONS["model"])
     models: list[dict] | None = Field(
@@ -57,6 +68,9 @@ class DesignChangeRequest(BaseModel):
             raise ValueError("'models' is only valid when mode='consensus'")
         if self.mode == "consensus" and not self.models:
             raise ValueError("'models' is required when mode='consensus'")
+        inline_paths = [item.path for item in self.target_file_contents]
+        if len(inline_paths) != len(set(inline_paths)):
+            raise ValueError("'target_file_contents' must not contain duplicate paths")
         return self
 
 
@@ -109,6 +123,25 @@ class DesignChangeTool(SimpleTool):
                 "type": "string",
                 "description": "Optional override such as react_ts, react_js, html_css, html_css_js.",
             },
+            "target_file_contents": {
+                "type": "array",
+                "description": "Optional inline file contents to use when target_files are not readable from PAL's runtime.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Absolute file path this inline content corresponds to.",
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "Raw file contents for the target path.",
+                        },
+                    },
+                    "required": ["path", "content"],
+                    "additionalProperties": False,
+                },
+            },
             "models": {
                 "type": "array",
                 "items": {"type": "object"},
@@ -124,13 +157,38 @@ class DesignChangeTool(SimpleTool):
     def get_required_fields(self) -> list[str]:
         return ["change_request", "target_files", "mode", "output_format"]
 
+    def _get_inline_file_map(self, request: DesignChangeRequest) -> dict[str, str]:
+        return {item.path: item.content for item in request.target_file_contents}
+
     def _validate_file_paths(self, request) -> str | None:
-        path_error = super()._validate_file_paths(request)
-        if path_error:
-            return path_error
+        import os
+
+        inline_file_map = self._get_inline_file_map(request)
+
+        for file_path in request.target_files:
+            if not os.path.isabs(file_path):
+                return (
+                    f"Error: All file paths must be FULL absolute paths to real files / folders - DO NOT SHORTEN. "
+                    f"Received relative path: {file_path}\n"
+                    f"Please provide the full absolute path starting with '/' (must be FULL absolute paths to real files / folders - DO NOT SHORTEN)"
+                )
+
+        for inline_path in inline_file_map:
+            if not os.path.isabs(inline_path):
+                return (
+                    "Error: target_file_contents paths must be FULL absolute paths to real files / folders - "
+                    f"DO NOT SHORTEN. Received relative path: {inline_path}"
+                )
+            if inline_path not in request.target_files:
+                return (
+                    "Error: Every target_file_contents entry must correspond to a path listed in target_files. "
+                    f"Unexpected inline path: {inline_path}"
+                )
 
         unreadable_files: list[str] = []
-        for file_path in self.get_request_files(request):
+        for file_path in request.target_files:
+            if file_path in inline_file_map:
+                continue
             try:
                 resolved_path = resolve_and_validate_path(file_path)
             except (PermissionError, ValueError) as exc:
@@ -156,7 +214,8 @@ class DesignChangeTool(SimpleTool):
         return request.change_request
 
     def get_request_files(self, request) -> list:
-        return request.target_files
+        inline_file_map = self._get_inline_file_map(request)
+        return [file_path for file_path in request.target_files if file_path not in inline_file_map]
 
     def set_request_files(self, request, files: list) -> None:
         request.target_files = files
@@ -165,6 +224,7 @@ class DesignChangeTool(SimpleTool):
         self._ensure_prompt_model_context(request)
         implementation_kind = infer_implementation_kind(request.target_files, request.framework_hint)
         grouped_files = group_target_files(request.target_files)
+        inline_file_context = self._build_inline_file_context(request)
 
         request.change_request = (
             f"CHANGE REQUEST:\n{request.change_request}\n\n"
@@ -174,7 +234,18 @@ class DesignChangeTool(SimpleTool):
             f"TARGET FILES:\n" + "\n".join(request.target_files) + "\n\n"
             f"{self._build_implementation_instructions(implementation_kind, request.output_format, grouped_files)}"
         )
+        if inline_file_context:
+            request.change_request += f"\n\n=== INLINE TARGET FILE CONTENTS ===\n{inline_file_context}\n=== END INLINE TARGET FILE CONTENTS ==="
         return self.prepare_chat_style_prompt(request, system_prompt=self.get_system_prompt())
+
+    def _build_inline_file_context(self, request: DesignChangeRequest) -> str:
+        sections: list[str] = []
+        for item in request.target_file_contents:
+            normalized_content = item.content.replace("\r\n", "\n").replace("\r", "\n")
+            sections.append(
+                f"--- BEGIN FILE: {item.path} ---\n{normalized_content}\n--- END FILE: {item.path} ---"
+            )
+        return "\n\n".join(sections)
 
     async def execute(self, arguments: dict[str, Any]) -> list[TextContent]:
         if arguments.get("mode") != "consensus":
