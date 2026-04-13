@@ -445,6 +445,9 @@ of the evidence, even when it strongly points in one direction.""",
         # Resolve existing continuation_id or create a new one on first step
         continuation_id = request.continuation_id
 
+        if continuation_id and request.step_number > 1:
+            self._restore_consensus_state(continuation_id, request)
+
         if request.step_number == 1:
             if not continuation_id:
                 clean_args = {k: v for k, v in arguments.items() if k not in ["_model_context", "_resolved_model_name"]}
@@ -461,8 +464,14 @@ of the evidence, even when it strongly points in one direction.""",
             self.accumulated_responses = []
             # Set total steps: len(models) (each step includes consultation + response)
             request.total_steps = len(self.models_to_consult)
+        elif request.models and not self.models_to_consult:
+            # Allow later steps to recover if the caller re-sends the roster.
+            self.models_to_consult = request.models
 
         # For all steps (1 through total_steps), consult the corresponding model
+        if self.models_to_consult:
+            request.total_steps = len(self.models_to_consult)
+
         if request.step_number <= request.total_steps:
             # Calculate which model to consult for this step
             model_idx = request.step_number - 1  # 0-based index
@@ -543,6 +552,31 @@ of the evidence, even when it strongly points in one direction.""",
 
         # Otherwise, use standard workflow execution
         return await super().execute_workflow(arguments)
+
+    def _restore_consensus_state(self, continuation_id: str, request) -> None:
+        """Restore consensus-specific state for continuation steps."""
+        thread = get_thread(continuation_id)
+        if not thread:
+            return
+
+        restored_state: dict[str, Any] = {}
+        for turn in reversed(thread.turns):
+            if turn.role == "assistant" and turn.tool_name == self.get_name() and turn.model_metadata:
+                state = turn.model_metadata
+                if isinstance(state, dict):
+                    restored_state = state
+                    break
+
+        initial_context = thread.initial_context if isinstance(thread.initial_context, dict) else {}
+
+        self.work_history = restored_state.get("work_history", [])
+        self.initial_request = restored_state.get("initial_request") or initial_context.get("step")
+        self.models_to_consult = restored_state.get("models_to_consult") or request.models or initial_context.get("models") or []
+        self.accumulated_responses = restored_state.get("accumulated_responses", [])
+        self.original_proposal = restored_state.get("original_proposal") or initial_context.get("step")
+        self.initial_prompt = self.original_proposal or self.initial_request
+        self.consolidated_findings = ConsolidatedFindings()
+        self._reprocess_consolidated_findings()
 
     def _build_continuation_offer(self, continuation_id: str) -> dict[str, Any] | None:
         """Create a continuation offer without exposing prior model responses."""
@@ -817,6 +851,29 @@ of the evidence, even when it strongly points in one direction.""",
 
         logger.debug(
             f"[CONSENSUS_METADATA] {self.get_name()}: Using consensus-specific metadata instead of single-model metadata"
+        )
+
+    def store_conversation_turn(self, continuation_id: str, response_data: dict, request):
+        """Persist workflow and consensus-specific state for stateless continuation steps."""
+        from utils.conversation_memory import add_turn
+
+        clean_content = self._extract_clean_workflow_content_for_history(response_data)
+        workflow_state = {
+            "work_history": self.work_history,
+            "initial_request": getattr(self, "initial_request", None),
+            "models_to_consult": self.models_to_consult,
+            "accumulated_responses": self.accumulated_responses,
+            "original_proposal": self.original_proposal,
+        }
+
+        add_turn(
+            thread_id=continuation_id,
+            role="assistant",
+            content=clean_content,
+            tool_name=self.get_name(),
+            files=self.get_request_relevant_files(request),
+            images=self.get_request_images(request),
+            model_metadata=workflow_state,
         )
 
     def store_initial_issue(self, step_description: str):

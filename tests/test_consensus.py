@@ -2,6 +2,7 @@
 Tests for the Consensus tool using WorkflowTool architecture.
 """
 
+import json
 from unittest.mock import Mock
 
 import pytest
@@ -403,6 +404,109 @@ class TestConsensusTool:
                 else:
                     # Re-raise if it's a different RuntimeError
                     raise
+
+    @pytest.mark.asyncio
+    async def test_three_model_consensus_restores_state_across_fresh_instances(self):
+        """Later consensus steps should restore state from continuation memory.
+
+        This regression test simulates the real failure mode where a fresh ConsensusTool
+        instance handles each continuation step. Without restoration of consensus-specific
+        state, step 3 can no longer determine which model to consult next, causing the
+        outer agent to compensate with a separate chat call.
+        """
+        from utils.storage_backend import get_storage_backend
+
+        storage = get_storage_backend()
+        storage._store.clear()
+
+        models = [
+            {"model": "model-a", "stance": "for"},
+            {"model": "model-b", "stance": "against"},
+            {"model": "model-c", "stance": "neutral"},
+        ]
+
+        tool_step1 = ConsensusTool()
+
+        async def consult_step1(model_config, request):  # noqa: ARG001
+            return {
+                "model": model_config["model"],
+                "stance": model_config["stance"],
+                "status": "success",
+                "verdict": "step1 verdict",
+                "metadata": {"provider": "test", "model_name": model_config["model"]},
+            }
+
+        tool_step1._consult_model = consult_step1
+        step1_response = await tool_step1.execute(
+            {
+                "step": "Evaluate the proposal.",
+                "step_number": 1,
+                "total_steps": 3,
+                "next_step_required": True,
+                "findings": "Initial analysis",
+                "models": models,
+            }
+        )
+        step1_payload = json.loads(step1_response[0].text)
+        continuation_id = step1_payload["continuation_offer"]["continuation_id"]
+
+        tool_step2 = ConsensusTool()
+
+        async def consult_step2(model_config, request):  # noqa: ARG001
+            return {
+                "model": model_config["model"],
+                "stance": model_config["stance"],
+                "status": "success",
+                "verdict": "step2 verdict",
+                "metadata": {"provider": "test", "model_name": model_config["model"]},
+            }
+
+        tool_step2._consult_model = consult_step2
+        step2_response = await tool_step2.execute(
+            {
+                "step": "Incorporated the first response.",
+                "step_number": 2,
+                "total_steps": 3,
+                "next_step_required": True,
+                "findings": "Second consultation ready",
+                "continuation_id": continuation_id,
+            }
+        )
+        step2_payload = json.loads(step2_response[0].text)
+
+        tool_step3 = ConsensusTool()
+
+        async def consult_step3(model_config, request):  # noqa: ARG001
+            return {
+                "model": model_config["model"],
+                "stance": model_config["stance"],
+                "status": "success",
+                "verdict": "step3 verdict",
+                "metadata": {"provider": "test", "model_name": model_config["model"]},
+            }
+
+        tool_step3._consult_model = consult_step3
+        step3_response = await tool_step3.execute(
+            {
+                "step": "Ready for the final consultation.",
+                "step_number": 3,
+                "total_steps": 3,
+                "next_step_required": False,
+                "findings": "Third consultation ready",
+                "continuation_id": continuation_id,
+            }
+        )
+        step3_payload = json.loads(step3_response[0].text)
+
+        assert step1_payload["model_consulted"] == "model-a"
+        assert step2_payload["model_consulted"] == "model-b"
+        assert step3_payload["model_consulted"] == "model-c"
+        assert step3_payload["status"] == "consensus_workflow_complete"
+        assert step3_payload["complete_consensus"]["models_consulted"] == [
+            "model-a:for",
+            "model-b:against",
+            "model-c:neutral",
+        ]
 
 
 if __name__ == "__main__":
