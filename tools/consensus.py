@@ -19,7 +19,7 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
-from pydantic import Field, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 if TYPE_CHECKING:
     from tools.models import ToolModelCategory
@@ -30,6 +30,7 @@ from config import TEMPERATURE_ANALYTICAL
 from systemprompts import CONSENSUS_PROMPT
 from tools.shared.base_models import ConsolidatedFindings, WorkflowRequest
 from utils.conversation_memory import MAX_CONVERSATION_TURNS, create_thread, get_thread
+from utils.file_utils import resolve_and_validate_path
 
 from .workflow.base import WorkflowTool
 
@@ -48,6 +49,9 @@ CONSENSUS_WORKFLOW_FIELD_DESCRIPTIONS = {
         "Step 1: your independent analysis for later synthesis (not shared with other models). Steps 2+: summarize the newest model response."
     ),
     "relevant_files": "Optional supporting files that help the consensus analysis. Must be absolute full, non-abbreviated paths.",
+    "relevant_file_contents": (
+        "Optional inline file contents keyed by absolute path. Use this when PAL cannot read relevant_files directly from its runtime."
+    ),
     "models": (
         "User-specified list of models to consult (provide at least two entries). "
         "Each entry may include model, stance (for/against/neutral), and stance_prompt. "
@@ -57,6 +61,13 @@ CONSENSUS_WORKFLOW_FIELD_DESCRIPTIONS = {
     "model_responses": "Internal log of responses gathered so far.",
     "images": "Optional absolute image paths or base64 references that add helpful visual context.",
 }
+
+
+class InlineRelevantFile(BaseModel):
+    """Inline fallback content for a consensus relevant file."""
+
+    path: str = Field(..., description="Absolute file path this inline content corresponds to.")
+    content: str = Field(..., description="Raw file contents for the relevant path.")
 
 
 class ConsensusRequest(WorkflowRequest):
@@ -77,6 +88,10 @@ class ConsensusRequest(WorkflowRequest):
     relevant_files: list[str] | None = Field(
         default_factory=list,
         description=CONSENSUS_WORKFLOW_FIELD_DESCRIPTIONS["relevant_files"],
+    )
+    relevant_file_contents: list[InlineRelevantFile] | None = Field(
+        default_factory=list,
+        description=CONSENSUS_WORKFLOW_FIELD_DESCRIPTIONS["relevant_file_contents"],
     )
 
     # Internal tracking fields
@@ -105,6 +120,16 @@ class ConsensusRequest(WorkflowRequest):
     @model_validator(mode="after")
     def validate_step_one_requirements(self):
         """Ensure step 1 has required models field and unique model+stance combinations."""
+        inline_paths = [item.path for item in self.relevant_file_contents or []]
+        if len(inline_paths) != len(set(inline_paths)):
+            raise ValueError("'relevant_file_contents' must not contain duplicate paths")
+        unexpected_inline_paths = [path for path in inline_paths if path not in (self.relevant_files or [])]
+        if unexpected_inline_paths:
+            raise ValueError(
+                "Every relevant_file_contents entry must correspond to a path listed in relevant_files. "
+                f"Unexpected inline paths: {unexpected_inline_paths}"
+            )
+
         if self.step_number == 1:
             if not self.models:
                 raise ValueError("Step 1 requires 'models' field to specify which models to consult")
@@ -188,6 +213,31 @@ of the evidence, even when it strongly points in one direction.""",
         """Return the consensus workflow-specific request model."""
         return ConsensusRequest
 
+    @staticmethod
+    def _get_inline_file_map(request: ConsensusRequest) -> dict[str, str]:
+        raw_items = getattr(request, "relevant_file_contents", None)
+        if not isinstance(raw_items, list):
+            return {}
+        return {item.path: item.content for item in raw_items}
+
+    @staticmethod
+    def _is_disk_readable_file(file_path: str) -> bool:
+        try:
+            resolved_path = resolve_and_validate_path(file_path)
+        except (PermissionError, ValueError):
+            return False
+        return resolved_path.exists() and resolved_path.is_file()
+
+    def _build_inline_file_context(self, request: ConsensusRequest) -> str:
+        sections: list[str] = []
+        raw_items = getattr(request, "relevant_file_contents", None)
+        if not isinstance(raw_items, list):
+            return ""
+        for item in raw_items:
+            normalized_content = item.content.replace("\r\n", "\n").replace("\r", "\n")
+            sections.append(f"--- BEGIN FILE: {item.path} ---\n{normalized_content}\n--- END FILE: {item.path} ---")
+        return "\n\n".join(sections)
+
     def get_input_schema(self) -> dict[str, Any]:
         """Generate input schema for consensus workflow."""
         from .workflow.schema_builders import WorkflowSchemaBuilder
@@ -221,6 +271,25 @@ of the evidence, even when it strongly points in one direction.""",
                 "type": "array",
                 "items": {"type": "string"},
                 "description": CONSENSUS_WORKFLOW_FIELD_DESCRIPTIONS["relevant_files"],
+            },
+            "relevant_file_contents": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Absolute file path this inline content corresponds to.",
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "Raw file contents for the relevant path.",
+                        },
+                    },
+                    "required": ["path", "content"],
+                    "additionalProperties": False,
+                },
+                "description": CONSENSUS_WORKFLOW_FIELD_DESCRIPTIONS["relevant_file_contents"],
             },
             # consensus-specific fields (not in base workflow)
             "models": {
@@ -624,15 +693,27 @@ of the evidence, even when it strongly points in one direction.""",
             # CRITICAL: Use the original proposal from step 1, NOT what's in request.step for steps 2+!
             # Steps 2+ contain summaries/notes that must NEVER be sent to other models
             prompt = self.original_proposal if self.original_proposal else self.initial_prompt
-            if request.relevant_files:
+            inline_file_map = self._get_inline_file_map(request)
+            disk_files = [
+                file_path
+                for file_path in (request.relevant_files or [])
+                if file_path not in inline_file_map and self._is_disk_readable_file(file_path)
+            ]
+            if disk_files:
                 file_content, _ = self._prepare_file_content_for_prompt(
-                    request.relevant_files,
+                    disk_files,
                     None,  # Use None instead of request.continuation_id for blinded consensus
                     "Context files",
                     model_context=model_context,
                 )
                 if file_content:
                     prompt = f"{prompt}\n\n=== CONTEXT FILES ===\n{file_content}\n=== END CONTEXT ==="
+            inline_file_context = self._build_inline_file_context(request)
+            if inline_file_context:
+                prompt = (
+                    f"{prompt}\n\n=== INLINE RELEVANT FILE CONTENTS ===\n"
+                    f"{inline_file_context}\n=== END INLINE RELEVANT FILE CONTENTS ==="
+                )
 
             # Get stance-specific system prompt
             stance = model_config.get("stance", "neutral")

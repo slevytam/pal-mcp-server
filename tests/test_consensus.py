@@ -2,8 +2,9 @@
 Tests for the Consensus tool using WorkflowTool architecture.
 """
 
+import asyncio
 import json
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -122,6 +123,7 @@ class TestConsensusTool:
         assert "models" in schema["properties"]
         # relevant_files should be present as it's used by consensus
         assert "relevant_files" in schema["properties"]
+        assert "relevant_file_contents" in schema["properties"]
 
         # model field should NOT be present as consensus uses 'models' field instead
         assert "model" not in schema["properties"]
@@ -195,6 +197,21 @@ class TestConsensusTool:
         assert step_data["issues_found"] == []
         assert step_data["hypothesis"] is None
 
+    def test_request_validation_rejects_unexpected_inline_paths(self):
+        with pytest.raises(ValueError, match="Unexpected inline paths"):
+            ConsensusRequest(
+                step="Analyze proposal",
+                step_number=1,
+                total_steps=3,
+                next_step_required=True,
+                findings="Initial analysis",
+                models=[{"model": "flash", "stance": "neutral"}],
+                relevant_files=["/tmp/proposal.md"],
+                relevant_file_contents=[
+                    {"path": "/tmp/other.md", "content": "Inline content"},
+                ],
+            )
+
     def test_stance_enhanced_prompt_generation(self):
         """Test stance-enhanced prompt generation."""
         tool = ConsensusTool()
@@ -220,6 +237,42 @@ class TestConsensusTool:
         tool = ConsensusTool()
         assert tool.should_call_expert_analysis({}) is False
         assert tool.requires_expert_analysis() is False
+
+    def test_consult_model_embeds_inline_relevant_file_contents(self):
+        tool = ConsensusTool()
+        tool.initial_prompt = "Evaluate this proposal."
+        tool.validate_and_correct_temperature = Mock(return_value=(tool.get_default_temperature(), []))
+
+        mock_provider = Mock()
+        mock_provider.get_provider_type.return_value.value = "mock"
+        captured_prompt: dict[str, str] = {}
+
+        def fake_generate_content(*args, **kwargs):
+            captured_prompt["prompt"] = kwargs["prompt"]
+            response = Mock()
+            response.content = "Looks reasonable."
+            return response
+
+        mock_provider.generate_content.side_effect = fake_generate_content
+        tool.get_model_provider = Mock(return_value=mock_provider)
+
+        request = Mock()
+        request.relevant_files = ["/tmp/proposal.md"]
+        request.relevant_file_contents = [
+            Mock(path="/tmp/proposal.md", content="# Proposal\nUse inline fallback content.\n")
+        ]
+        request.images = None
+
+        class FakeModelContext:
+            def __init__(self, model_name):
+                self.model_name = model_name
+
+        with patch("utils.model_context.ModelContext", FakeModelContext):
+            result = asyncio.run(tool._consult_model({"model": "flash", "stance": "neutral"}, request))
+
+        assert result["status"] == "success"
+        assert "INLINE RELEVANT FILE CONTENTS" in captured_prompt["prompt"]
+        assert "--- BEGIN FILE: /tmp/proposal.md ---" in captured_prompt["prompt"]
 
     def test_execute_workflow_step1_basic(self):
         """Test basic workflow validation for step 1."""
@@ -332,7 +385,7 @@ class TestConsensusTool:
         assert result["consensus_workflow_status"] == "ready_for_synthesis"
 
     @pytest.mark.asyncio
-    async def test_consensus_with_relevant_files_model_context_fix(self):
+    async def test_consensus_with_relevant_files_model_context_fix(self, tmp_path):
         """Test that consensus tool properly handles relevant_files without RuntimeError.
 
         This is a regression test for the bug where _prepare_file_content_for_prompt
@@ -345,15 +398,19 @@ class TestConsensusTool:
         - Method expected model_context parameter but got None (default value)
         - Runtime validation in base_tool.py threw RuntimeError
         """
-        from unittest.mock import AsyncMock, Mock, patch
+        from unittest.mock import Mock, patch
 
         from utils.model_context import ModelContext
 
         tool = ConsensusTool()
+        file1 = tmp_path / "file1.py"
+        file2 = tmp_path / "file2.js"
+        file1.write_text("print('hello')\n", encoding="utf-8")
+        file2.write_text("console.log('hello');\n", encoding="utf-8")
 
         # Create a mock request with relevant_files (the trigger condition)
         mock_request = Mock()
-        mock_request.relevant_files = ["/test/file1.py", "/test/file2.js"]
+        mock_request.relevant_files = [str(file1), str(file2)]
         mock_request.continuation_id = None
 
         # Mock model configuration
@@ -369,7 +426,9 @@ class TestConsensusTool:
 
             # Setup mocks
             mock_provider = Mock()
-            mock_provider.generate_content = AsyncMock(return_value={"response": "test response"})
+            mock_response = Mock()
+            mock_response.content = "test response"
+            mock_provider.generate_content = Mock(return_value=mock_response)
             mock_get_provider.return_value = mock_provider
             mock_prepare_files.return_value = ("file content", [])
             mock_get_prompt.return_value = "system prompt"
