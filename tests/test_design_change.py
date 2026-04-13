@@ -168,6 +168,37 @@ class TestDesignChangeTool:
         assert payload["operations"][0]["kind"] == "replace"
         assert payload["operations"][1]["kind"] == "append"
 
+    def test_format_response_canonicalizes_append_position_in_fragment_patch(self):
+        request = DesignChangeRequest(
+            change_request="Add a card",
+            target_files=["/tmp/home-view.tsx", "/tmp/home-shell.css"],
+            mode="single",
+            output_format="fragment",
+        )
+        response = {
+            "status": "success",
+            "implementation_kind": "react_ts",
+            "patch_format": "fragment_patch",
+            "summary": "Adds a compact metrics panel.",
+            "operations": [
+                {
+                    "id": "op_append_styles",
+                    "file": "/tmp/home-shell.css",
+                    "file_role": "style",
+                    "kind": "append",
+                    "position": "after",
+                    "target": {"locator_type": "anchor_text", "value": ".hero { display: grid; }"},
+                    "content": ".metrics-panel { display: grid; }",
+                }
+            ],
+        }
+
+        formatted = self.tool.format_response(json.dumps(response), request)
+        payload = json.loads(formatted)
+        assert payload["patch_format"] == "fragment_patch"
+        assert payload["operations"][0]["position"] == "end"
+        assert payload["operations"][0]["target"]["locator_type"] == "end_of_file"
+
     def test_format_response_full_file_patch(self):
         request = DesignChangeRequest(
             change_request="Update full files",

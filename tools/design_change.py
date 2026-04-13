@@ -304,6 +304,7 @@ class DesignChangeTool(SimpleTool):
         if payload.get("status") == "cannot_apply_safely":
             validated = CannotApplySafelyResponse.model_validate(payload)
         elif payload.get("patch_format") == "fragment_patch":
+            payload = self._canonicalize_fragment_payload(payload, request)
             validated = FragmentPatchResponse.model_validate(payload)
             self._validate_response_files(
                 request.target_files,
@@ -387,6 +388,47 @@ class DesignChangeTool(SimpleTool):
                     "updated_files": normalized_files,
                 }
 
+        return payload
+
+    def _canonicalize_fragment_payload(
+        self,
+        payload: dict[str, Any],
+        request: DesignChangeRequest,
+    ) -> dict[str, Any]:
+        operations = payload.get("operations")
+        if not isinstance(operations, list):
+            return payload
+
+        grouped_files = group_target_files(request.target_files)
+        style_files = set(grouped_files["style"])
+        behavior_files = set(grouped_files["behavior"])
+        normalized_operations: list[dict[str, Any]] = []
+
+        for index, operation in enumerate(operations, start=1):
+            if not isinstance(operation, dict):
+                normalized_operations.append(operation)
+                continue
+
+            normalized = dict(operation)
+            file_path = normalized.get("file")
+            if file_path in style_files:
+                normalized["file_role"] = "style"
+            elif file_path in behavior_files:
+                normalized["file_role"] = "behavior"
+            elif isinstance(file_path, str) and file_path in request.target_files:
+                normalized["file_role"] = "structure"
+
+            if "id" not in normalized:
+                normalized["id"] = f"op_canonicalized_{index}"
+
+            kind = str(normalized.get("kind") or "").strip().lower()
+            if kind == "append":
+                normalized["position"] = "end"
+                normalized["target"] = {"locator_type": "end_of_file"}
+
+            normalized_operations.append(normalized)
+
+        payload["operations"] = normalized_operations
         return payload
 
     def _normalize_fragment_entries(
