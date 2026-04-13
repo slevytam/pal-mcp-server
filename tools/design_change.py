@@ -344,6 +344,20 @@ class DesignChangeTool(SimpleTool):
                     "operations": normalized_operations,
                 }
 
+        patch_type = payload.get("patch_type")
+        if patch_type == "fragment_patch":
+            normalized_operations = self._normalize_fragment_entries(payload.get("fragments", []), request)
+            if normalized_operations:
+                return {
+                    "status": "success",
+                    "implementation_kind": infer_implementation_kind(request.target_files, request.framework_hint),
+                    "patch_format": "fragment_patch",
+                    "summary": payload.get("summary")
+                    or payload.get("change_summary")
+                    or "Generated fragment patch from formatter output.",
+                    "operations": normalized_operations,
+                }
+
         nested_full_file_patch = payload.get("full_file_patch")
         if isinstance(nested_full_file_patch, dict):
             files = nested_full_file_patch.get("files", [])
@@ -477,12 +491,23 @@ class DesignChangeTool(SimpleTool):
 
             raw_mode = str(entry.get("kind") or entry.get("insert_mode") or "").strip().lower()
             anchor_text = entry.get("anchor_text")
+            raw_target = entry.get("target")
             target = None
             kind = "append"
             position = "end"
 
             if isinstance(anchor_text, str) and anchor_text:
                 target = {"locator_type": "anchor_text", "value": anchor_text}
+            elif isinstance(raw_target, dict):
+                locator_type = str(raw_target.get("locator_type") or "").strip().lower()
+                if locator_type == "anchor_text" and isinstance(raw_target.get("value"), str) and raw_target.get("value"):
+                    target = {"locator_type": "anchor_text", "value": raw_target["value"]}
+                elif locator_type == "end_of_file":
+                    target = {"locator_type": "end_of_file"}
+                elif locator_type == "range":
+                    range_start = raw_target.get("from")
+                    if isinstance(range_start, str) and range_start:
+                        target = {"locator_type": "anchor_text", "value": range_start}
 
             if raw_mode in {"replace", "replace_anchor"}:
                 kind = "replace"

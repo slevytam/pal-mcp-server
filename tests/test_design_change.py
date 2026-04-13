@@ -260,6 +260,40 @@ class TestDesignChangeTool:
         assert payload["operations"][0]["kind"] == "replace"
         assert payload["operations"][0]["position"] == "after"
 
+    def test_format_response_normalizes_patch_type_fragments_with_range_target(self):
+        request = DesignChangeRequest(
+            change_request="Update sidebar",
+            target_files=["/tmp/home-shell.tsx"],
+            mode="single",
+            output_format="fragment",
+        )
+        response = {
+            "patch_type": "fragment_patch",
+            "fragments": [
+                {
+                    "id": "replace-workspace-dash-sidebar",
+                    "file": "/tmp/home-shell.tsx",
+                    "file_role": "structure",
+                    "kind": "replace",
+                    "position": "replace",
+                    "target": {
+                        "locator_type": "range",
+                        "from": "function WorkspaceDashSidebar({ workspace }: { workspace: any | null }) {",
+                        "to": "function WorkspaceDashCanvas({ workspace }: { workspace: any | null }) {",
+                    },
+                    "content": "function WorkspaceDashSidebar({ workspace }: { workspace: any | null }) {\n  return null;\n}",
+                }
+            ],
+        }
+
+        formatted = self.tool.format_response(json.dumps(response), request)
+        payload = json.loads(formatted)
+        assert payload["patch_format"] == "fragment_patch"
+        assert payload["operations"][0]["kind"] == "replace"
+        assert payload["operations"][0]["position"] == "after"
+        assert payload["operations"][0]["target"]["locator_type"] == "anchor_text"
+        assert payload["operations"][0]["target"]["value"].startswith("function WorkspaceDashSidebar")
+
     def test_format_response_full_file_patch(self):
         request = DesignChangeRequest(
             change_request="Update full files",
