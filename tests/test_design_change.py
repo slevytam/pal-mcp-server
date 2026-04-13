@@ -53,6 +53,19 @@ class TestDesignChangeTool:
                 output_format="fragment",
             )
 
+    def test_validate_file_paths_rejects_missing_target_files(self):
+        request = DesignChangeRequest(
+            change_request="Add a card",
+            target_files=["/tmp/definitely-missing-home-view.tsx", "/tmp/definitely-missing-home-shell.css"],
+            mode="single",
+            output_format="fragment",
+        )
+
+        error = self.tool._validate_file_paths(request)
+        assert error is not None
+        assert "could not access the requested target_files" in error
+        assert "file does not exist" in error
+
     def test_detection_helpers(self):
         assert classify_file_role("/tmp/App.tsx") == "structure"
         assert classify_file_role("/tmp/styles.css") == "style"
@@ -228,8 +241,12 @@ class TestDesignChangeTool:
         assert "CHANGE REQUEST:" in prompt
 
     @pytest.mark.asyncio
-    async def test_execute_consensus_returns_structured_patch(self):
+    async def test_execute_consensus_returns_structured_patch(self, tmp_path):
         tool = DesignChangeTool()
+        tsx_path = tmp_path / "App.tsx"
+        css_path = tmp_path / "app.css"
+        tsx_path.write_text("<section className=\"hero\">Hero</section>\n", encoding="utf-8")
+        css_path.write_text(".hero { display: grid; }\n", encoding="utf-8")
         mocked_outputs = [
             (
                 "Strong direction: add a compact card below the hero and keep styling additive.",
@@ -249,7 +266,7 @@ class TestDesignChangeTool:
                         "operations": [
                             {
                                 "id": "op_insert_card",
-                                "file": "/tmp/App.tsx",
+                                "file": str(tsx_path),
                                 "file_role": "structure",
                                 "kind": "insert",
                                 "target": {
@@ -261,7 +278,7 @@ class TestDesignChangeTool:
                             },
                             {
                                 "id": "op_append_styles",
-                                "file": "/tmp/app.css",
+                                "file": str(css_path),
                                 "file_role": "style",
                                 "kind": "append",
                                 "target": {"locator_type": "end_of_file"},
@@ -286,7 +303,7 @@ class TestDesignChangeTool:
         result = await tool.execute(
             {
                 "change_request": "Add a compact metrics card below the hero",
-                "target_files": ["/tmp/App.tsx", "/tmp/app.css"],
+                "target_files": [str(tsx_path), str(css_path)],
                 "mode": "consensus",
                 "output_format": "fragment",
                 "models": [{"model": "model-a"}, {"model": "model-b", "stance": "for"}],

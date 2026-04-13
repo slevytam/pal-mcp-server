@@ -16,6 +16,7 @@ from tools.shared.exceptions import ToolExecutionError
 from tools.shared.base_models import COMMON_FIELD_DESCRIPTIONS
 from tools.simple.base import SimpleTool
 from utils.design_change_detection import group_target_files, infer_implementation_kind
+from utils.file_utils import resolve_and_validate_path
 from utils.design_change_models import (
     CannotApplySafelyResponse,
     FragmentPatchResponse,
@@ -122,6 +123,34 @@ class DesignChangeTool(SimpleTool):
 
     def get_required_fields(self) -> list[str]:
         return ["change_request", "target_files", "mode", "output_format"]
+
+    def _validate_file_paths(self, request) -> str | None:
+        path_error = super()._validate_file_paths(request)
+        if path_error:
+            return path_error
+
+        unreadable_files: list[str] = []
+        for file_path in self.get_request_files(request):
+            try:
+                resolved_path = resolve_and_validate_path(file_path)
+            except (PermissionError, ValueError) as exc:
+                unreadable_files.append(f"{file_path} ({exc})")
+                continue
+
+            if not resolved_path.exists():
+                unreadable_files.append(f"{file_path} (file does not exist)")
+            elif not resolved_path.is_file():
+                unreadable_files.append(f"{file_path} (path is not a file)")
+
+        if unreadable_files:
+            joined = "\n".join(f"- {entry}" for entry in unreadable_files)
+            return (
+                "Error: design_change could not access the requested target_files.\n"
+                "Each target file must be a readable absolute path to an existing file.\n"
+                f"{joined}"
+            )
+
+        return None
 
     def get_request_prompt(self, request) -> str:
         return request.change_request
