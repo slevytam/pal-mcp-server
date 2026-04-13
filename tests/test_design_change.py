@@ -230,6 +230,36 @@ class TestDesignChangeTool:
         assert payload["patch_format"] == "fragment_patch"
         assert payload["operations"][0]["position"] == "after"
 
+    def test_format_response_canonicalizes_replace_leaked_into_position(self):
+        request = DesignChangeRequest(
+            change_request="Add a card",
+            target_files=["/tmp/home-view.tsx"],
+            mode="single",
+            output_format="fragment",
+        )
+        response = {
+            "status": "success",
+            "implementation_kind": "react_ts",
+            "patch_format": "fragment_patch",
+            "summary": "Adds a compact metrics panel.",
+            "operations": [
+                {
+                    "id": "op_replace_hero",
+                    "file": "/tmp/home-view.tsx",
+                    "file_role": "structure",
+                    "position": "replace",
+                    "target": {"locator_type": "anchor_text", "value": "<section className=\"hero\">Hero</section>"},
+                    "content": "<><section className=\"hero\">Hero</section><section className=\"metrics-panel\">Metrics</section></>",
+                }
+            ],
+        }
+
+        formatted = self.tool.format_response(json.dumps(response), request)
+        payload = json.loads(formatted)
+        assert payload["patch_format"] == "fragment_patch"
+        assert payload["operations"][0]["kind"] == "replace"
+        assert payload["operations"][0]["position"] == "after"
+
     def test_format_response_full_file_patch(self):
         request = DesignChangeRequest(
             change_request="Update full files",

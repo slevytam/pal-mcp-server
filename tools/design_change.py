@@ -422,12 +422,22 @@ class DesignChangeTool(SimpleTool):
             if "id" not in normalized:
                 normalized["id"] = f"op_canonicalized_{index}"
 
+            raw_position = str(normalized.get("position") or "").strip().lower()
             kind = str(normalized.get("kind") or "").strip().lower()
+
+            if raw_position in {"replace", "append", "insert"} and not kind:
+                kind = raw_position
+                normalized["kind"] = kind
+
+            if raw_position == "replace":
+                normalized["kind"] = "replace"
+                kind = "replace"
+
             if kind == "append":
                 normalized["position"] = "end"
                 normalized["target"] = {"locator_type": "end_of_file"}
             elif kind == "replace":
-                normalized.setdefault("position", "after")
+                normalized["position"] = "after"
             elif kind == "insert":
                 normalized.setdefault("position", "after")
 
