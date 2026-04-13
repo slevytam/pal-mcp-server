@@ -55,6 +55,8 @@ from tools import (  # noqa: E402
     CodeReviewTool,
     ConsensusTool,
     DebugIssueTool,
+    DesignChangeTool,
+    DesignChangeApplyTool,
     DocgenTool,
     ListModelsTool,
     LookupTool,
@@ -267,6 +269,8 @@ TOOLS = {
     "codereview": CodeReviewTool(),  # Comprehensive step-by-step code review workflow with expert analysis
     "precommit": PrecommitTool(),  # Step-by-step pre-commit validation workflow
     "debug": DebugIssueTool(),  # Root cause analysis and debugging assistance
+    "design_change": DesignChangeTool(),  # Structured UI design patch generation
+    "design_change_apply": DesignChangeApplyTool(),  # Apply or dry-run structured design patches
     "secaudit": SecauditTool(),  # Comprehensive security audit with OWASP Top 10 and compliance coverage
     "docgen": DocgenTool(),  # Step-by-step documentation generation with complexity analysis
     "analyze": AnalyzeTool(),  # General-purpose file and code analysis
@@ -321,6 +325,16 @@ PROMPT_TEMPLATES = {
         "name": "debug",
         "description": "Debug an issue or error",
         "template": "Help debug this issue with {model}",
+    },
+    "design_change": {
+        "name": "design_change",
+        "description": "Generate structured UI design patches for existing files",
+        "template": "Generate a structured UI patch with {model}",
+    },
+    "design_change_apply": {
+        "name": "design_change_apply",
+        "description": "Dry-run or apply structured UI design patches",
+        "template": "Apply or dry-run a structured UI patch",
     },
     "secaudit": {
         "name": "secaudit",

@@ -14,5 +14,7 @@ _Formerly known as PAL MCP. See the short [name change note](name-change.md) for
 | [Configuration](configuration.md) | .env options, restriction policies, logging levels. |
 | [Testing](testing.md) | Test strategy, command cheats, and coverage notes. |
 | [Troubleshooting](troubleshooting.md) | Common issues and resolutions. |
+| [Design Change Tool](tools/design_change.md) | Structured UI patch generation for TSX/CSS and HTML/CSS/JS. |
+| [Design Change Apply Tool](tools/design_change_apply.md) | Dry-run or apply structured UI patches. |
 
 Additional docs live in this directory; start with the table above to orient yourself.

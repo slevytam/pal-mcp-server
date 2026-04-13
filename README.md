@@ -192,6 +192,7 @@ cd pal-mcp-server
 "Debug this error with o3 and then get flash to suggest optimizations"
 "Plan the migration strategy with pal, get consensus from multiple models"
 "clink with cli_name=\"gemini\" role=\"planner\" to draft a phased rollout plan"
+"Use design_change in consensus mode to add a metrics panel to Dashboard.tsx and dashboard.css"
 ```
 
 👉 **[Complete Setup Guide](docs/getting-started.md)** with detailed installation, configuration for Gemini / Codex / Qwen, and troubleshooting
@@ -212,6 +213,8 @@ PAL activates any provider that has credentials in your `.env`. See `.env.exampl
 - **[`thinkdeep`](docs/tools/thinkdeep.md)** - Extended reasoning, edge case analysis, alternative perspectives
 - **[`planner`](docs/tools/planner.md)** - Break down complex projects into structured, actionable plans
 - **[`consensus`](docs/tools/consensus.md)** - Get expert opinions from multiple AI models with stance steering
+- **[`design_change`](docs/tools/design_change.md)** - Generate structured UI patches for existing TSX/CSS or HTML/CSS/JS files
+- **[`design_change_apply`](docs/tools/design_change_apply.md)** - Dry-run or apply structured UI patches returned by `design_change`
 
 **Code Analysis & Quality**
 - **[`debug`](docs/tools/debug.md)** - Systematic investigation and root cause analysis
@@ -238,7 +241,7 @@ PAL activates any provider that has credentials in your `.env`. See `.env.exampl
 To optimize context window usage, only essential tools are enabled by default:
 
 **Enabled by default:**
-- `chat`, `thinkdeep`, `planner`, `consensus` - Core collaboration tools
+- `chat`, `thinkdeep`, `planner`, `consensus`, `design_change`, `design_change_apply` - Core collaboration tools
 - `codereview`, `precommit`, `debug` - Essential code quality tools
 - `apilookup` - Rapid API/SDK information lookup
 - `challenge` - Critical thinking utility

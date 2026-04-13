@@ -7,6 +7,7 @@ from .chat_prompt import CHAT_PROMPT
 from .codereview_prompt import CODEREVIEW_PROMPT
 from .consensus_prompt import CONSENSUS_PROMPT
 from .debug_prompt import DEBUG_ISSUE_PROMPT
+from .design_change_prompt import DESIGN_CHANGE_PROMPT
 from .docgen_prompt import DOCGEN_PROMPT
 from .generate_code_prompt import GENERATE_CODE_PROMPT
 from .planner_prompt import PLANNER_PROMPT
@@ -21,6 +22,7 @@ __all__ = [
     "THINKDEEP_PROMPT",
     "CODEREVIEW_PROMPT",
     "DEBUG_ISSUE_PROMPT",
+    "DESIGN_CHANGE_PROMPT",
     "DOCGEN_PROMPT",
     "GENERATE_CODE_PROMPT",
     "ANALYZE_PROMPT",

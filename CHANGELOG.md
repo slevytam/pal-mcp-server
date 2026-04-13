@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## Unreleased
+
+### Features
+
+- Add `design_change` tool for structured UI patch generation with `single` and `consensus` modes, supporting `fragment` and `full_files` outputs for existing TSX/CSS and HTML/CSS/JS implementations
+
+- Add `design_change_apply` tool plus apply helpers for dry-run and conservative execution of structured UI patches
+
+### Documentation
+
+- Document `design_change` and `design_change_apply` usage, examples, and discovery paths in the docs and README
+
+### Testing
+
+- Add unit, server, and live OpenRouter integration coverage for `design_change` consensus flows and apply behavior
+
 ## v9.8.2 (2025-12-15)
 
 ### Bug Fixes

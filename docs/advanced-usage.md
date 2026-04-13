@@ -257,6 +257,31 @@ All tools that work with files support **both individual files and entire direct
 "Refactor src/ for better organization, focus on maintainability and readability"
 ```
 
+**`design_change`** - Structured UI patch generation for existing front-end files
+- `change_request`: Requested UI/design change to make (required)
+- `target_files`: Relevant structure/style/behavior files (required)
+- `mode`: `single` or `consensus`
+- `output_format`: `fragment` or `full_files`
+- `model`: Formatter model (required in auto mode)
+- `models`: Model roster for consensus mode
+- `framework_hint`: Optional override such as `react_ts`, `react_js`, `html_css`, `html_css_js`
+- `images`: Optional screenshots or mockups
+
+```
+"Use design_change with flash to add a compact alert card below the hero section in Dashboard.tsx and dashboard.css"
+"Use design_change in consensus mode with flash and mistral, then return a fragment patch"
+"Use design_change to update index.html, styles.css, and app.js and return full files"
+```
+
+**`design_change_apply`** - Dry-run or apply structured design patches
+- `patch`: A structured payload returned by `design_change` (required)
+- `allowed_files`: Optional allowlist of files the patch may touch
+- `dry_run`: Defaults to true
+
+```
+"Use design_change_apply in dry-run mode with this patch and confirm which files would change"
+```
+
 ## Context Revival: AI Memory Beyond Context Limits
 
 **The PAL MCP Server's most revolutionary feature** is its ability to maintain conversation context even after Claude's memory resets. This enables truly persistent AI collaboration across multiple sessions and context boundaries.

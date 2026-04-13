@@ -10,6 +10,8 @@ from .clink import CLinkTool
 from .codereview import CodeReviewTool
 from .consensus import ConsensusTool
 from .debug import DebugIssueTool
+from .design_change import DesignChangeTool
+from .design_change_apply import DesignChangeApplyTool
 from .docgen import DocgenTool
 from .listmodels import ListModelsTool
 from .planner import PlannerTool
@@ -25,6 +27,8 @@ __all__ = [
     "ThinkDeepTool",
     "CodeReviewTool",
     "DebugIssueTool",
+    "DesignChangeTool",
+    "DesignChangeApplyTool",
     "DocgenTool",
     "AnalyzeTool",
     "LookupTool",
