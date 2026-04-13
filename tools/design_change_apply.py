@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from tools.models import ToolOutput
 from tools.shared.base_models import COMMON_FIELD_DESCRIPTIONS
+from tools.shared.base_tool import BaseTool
 from utils.design_change_apply import apply_fragment_patch, apply_full_file_patch
 from utils.design_change_models import FragmentPatchResponse, FullFilePatchResponse
 
@@ -28,7 +29,7 @@ class DesignChangeApplyRequest(BaseModel):
     continuation_id: str | None = Field(None, description=COMMON_FIELD_DESCRIPTIONS["continuation_id"])
 
 
-class DesignChangeApplyTool:
+class DesignChangeApplyTool(BaseTool):
     """Thin MCP wrapper around the design change apply helpers."""
 
     def get_name(self) -> str:
@@ -45,6 +46,22 @@ class DesignChangeApplyTool:
 
     def requires_model(self) -> bool:
         return False
+
+    def get_system_prompt(self) -> str:
+        """No AI model needed for this tool."""
+        return ""
+
+    def get_request_model(self):
+        """Return the Pydantic request model for direct validation."""
+        return DesignChangeApplyRequest
+
+    async def prepare_prompt(self, request: DesignChangeApplyRequest) -> str:
+        """Not used for this utility tool."""
+        return ""
+
+    def format_response(self, response: str, request: DesignChangeApplyRequest, model_info: dict | None = None) -> str:
+        """Not used for this utility tool."""
+        return response
 
     def get_input_schema(self) -> dict[str, Any]:
         return {
