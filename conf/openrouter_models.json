@@ -27,9 +27,7 @@
     {
       "model_name": "anthropic/claude-opus-4.5",
       "aliases": [
-        "opus",
-        "opus4.5",
-        "claude-opus"
+        "opus4.5"
       ],
       "context_window": 200000,
       "max_output_tokens": 64000,
@@ -70,8 +68,42 @@
       "supports_images": true,
       "max_image_size_mb": 5.0,
       "allow_code_generation": true,
-      "description": "Claude Opus 4.6 - Anthropic's newest flagship for long-running coding, debugging, and high-stakes professional workflows",
+      "description": "Claude Opus 4.6 - Earlier Anthropic flagship for long-running coding, debugging, and high-stakes professional workflows",
       "intelligence_score": 19
+    },
+    {
+      "model_name": "anthropic/claude-opus-4.7",
+      "aliases": [
+        "opus4.7"
+      ],
+      "context_window": 1000000,
+      "max_output_tokens": 128000,
+      "supports_extended_thinking": true,
+      "supports_json_mode": true,
+      "supports_function_calling": true,
+      "supports_images": true,
+      "max_image_size_mb": 5.0,
+      "allow_code_generation": true,
+      "description": "Claude Opus 4.7 - Anthropic flagship release with 1M context for advanced coding, debugging, and agentic workflows",
+      "intelligence_score": 19
+    },
+    {
+      "model_name": "anthropic/claude-opus-4.8",
+      "aliases": [
+        "opus",
+        "claude-opus",
+        "opus4.8"
+      ],
+      "context_window": 1000000,
+      "max_output_tokens": 128000,
+      "supports_extended_thinking": true,
+      "supports_json_mode": true,
+      "supports_function_calling": true,
+      "supports_images": true,
+      "max_image_size_mb": 5.0,
+      "allow_code_generation": true,
+      "description": "Claude Opus 4.8 - Latest Anthropic flagship on OpenRouter for long-running coding, debugging, and agentic workflows",
+      "intelligence_score": 20
     },
     {
       "model_name": "anthropic/claude-opus-4.1",

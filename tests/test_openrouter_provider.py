@@ -79,7 +79,9 @@ class TestOpenRouterProvider:
         provider = OpenRouterProvider(api_key="test-key")
 
         # Test alias resolution
-        assert provider._resolve_model_name("opus") == "anthropic/claude-opus-4.5"
+        assert provider._resolve_model_name("opus") == "anthropic/claude-opus-4.8"
+        assert provider._resolve_model_name("opus4.8") == "anthropic/claude-opus-4.8"
+        assert provider._resolve_model_name("opus4.7") == "anthropic/claude-opus-4.7"
         assert provider._resolve_model_name("opus4.5") == "anthropic/claude-opus-4.5"
         assert provider._resolve_model_name("opus4.1") == "anthropic/claude-opus-4.1"
         assert provider._resolve_model_name("sonnet") == "anthropic/claude-sonnet-4.5"
@@ -98,7 +100,7 @@ class TestOpenRouterProvider:
         assert provider._resolve_model_name("r1") == "deepseek/deepseek-r1-0528"
 
         # Test case-insensitive
-        assert provider._resolve_model_name("OPUS") == "anthropic/claude-opus-4.5"
+        assert provider._resolve_model_name("OPUS") == "anthropic/claude-opus-4.8"
         assert provider._resolve_model_name("SONNET") == "anthropic/claude-sonnet-4.5"
         assert provider._resolve_model_name("O3") == "openai/o3"
         assert provider._resolve_model_name("Mistral") == "mistralai/mistral-large-2411"
@@ -307,11 +309,31 @@ class TestOpenRouterRegistry:
 
         registry = OpenRouterModelRegistry()
 
-        # Test known model (opus alias now points to 4.5)
+        # Test known model (opus alias now points to 4.8)
         caps = registry.get_capabilities("opus")
         assert caps is not None
-        assert caps.model_name == "anthropic/claude-opus-4.5"
-        assert caps.context_window == 200000  # Claude's context window
+        assert caps.model_name == "anthropic/claude-opus-4.8"
+        assert caps.context_window == 1000000  # Claude's current 1M context window
+
+        # Test using full model name for 4.8
+        caps = registry.get_capabilities("anthropic/claude-opus-4.8")
+        assert caps is not None
+        assert caps.model_name == "anthropic/claude-opus-4.8"
+
+        # Test opus4.8 alias
+        caps = registry.get_capabilities("opus4.8")
+        assert caps is not None
+        assert caps.model_name == "anthropic/claude-opus-4.8"
+
+        # Test using full model name for 4.7
+        caps = registry.get_capabilities("anthropic/claude-opus-4.7")
+        assert caps is not None
+        assert caps.model_name == "anthropic/claude-opus-4.7"
+
+        # Test opus4.7 alias
+        caps = registry.get_capabilities("opus4.7")
+        assert caps is not None
+        assert caps.model_name == "anthropic/claude-opus-4.7"
 
         # Test using full model name for 4.5
         caps = registry.get_capabilities("anthropic/claude-opus-4.5")

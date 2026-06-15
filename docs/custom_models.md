@@ -54,8 +54,9 @@ The curated defaults in `conf/openrouter_models.json` include popular entries su
 
 | Alias | Canonical Model | Highlights |
 |-------|-----------------|------------|
-| `opus`, `claude-opus` | `anthropic/claude-opus-4.5` | Default Claude Opus alias in the curated manifest |
-| `opus4.6` | `anthropic/claude-opus-4.6` | Latest Claude Opus entry for long-running coding and agent workflows |
+| `opus`, `claude-opus`, `opus4.8` | `anthropic/claude-opus-4.8` | Default and latest Claude Opus entry in the curated manifest |
+| `opus4.7` | `anthropic/claude-opus-4.7` | Prior Claude Opus release with the same 1M/128K profile |
+| `opus4.6` | `anthropic/claude-opus-4.6` | Earlier Claude Opus 4.6 entry for long-running coding and agent workflows |
 | `sonnet`, `sonnet4.5` | `anthropic/claude-sonnet-4.5` | Balanced Claude with high context window |
 | `haiku` | `anthropic/claude-3.5-haiku` | Fast Claude option with vision |
 | `pro`, `gemini` | `google/gemini-3-pro-preview` | Default Gemini alias in the curated manifest |
